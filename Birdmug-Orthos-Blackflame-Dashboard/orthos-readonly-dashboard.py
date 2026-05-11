@@ -46,7 +46,13 @@ INDEX_HTML = r"""<!doctype html>
       78% { color:#fff0b8; text-shadow:0 0 5px rgba(255, 245, 180, .48), 0 0 13px rgba(255, 115, 0, .62), 0 0 27px rgba(255, 35, 8, .38), 0 0 46px rgba(255, 170, 0, .20); }
       100% { color:#fff6d6; text-shadow:0 0 4px rgba(255, 245, 180, .36), 0 0 10px rgba(255, 112, 0, .50), 0 0 22px rgba(255, 28, 8, .30), 0 0 38px rgba(255, 160, 0, .16); }
     }
-    main { padding:20px; display:grid; gap:16px; max-width:1320px; margin:0 auto; }
+    main { position:relative; padding:20px; display:grid; gap:16px; max-width:1320px; margin:0 auto; isolation:isolate; }
+    main::before { content:""; position:absolute; inset:8px; border-radius:10px; background:radial-gradient(circle at 15% 8%, rgba(255, 30, 8, .10), transparent 32%), radial-gradient(circle at 82% 18%, rgba(255, 116, 0, .09), transparent 30%), radial-gradient(circle at 48% 92%, rgba(255, 222, 80, .055), transparent 34%), rgba(0,0,0,.08); filter:saturate(1.08); opacity:.78; animation:magma-panel-drift 28s infinite alternate ease-in-out; z-index:-1; pointer-events:none; }
+    @keyframes magma-panel-drift {
+      0% { background:radial-gradient(circle at 15% 8%, rgba(255, 30, 8, .08), transparent 32%), radial-gradient(circle at 82% 18%, rgba(255, 116, 0, .07), transparent 30%), radial-gradient(circle at 48% 92%, rgba(255, 222, 80, .045), transparent 34%), rgba(0,0,0,.08); }
+      45% { background:radial-gradient(circle at 24% 14%, rgba(255, 86, 0, .11), transparent 34%), radial-gradient(circle at 74% 30%, rgba(255, 38, 10, .085), transparent 31%), radial-gradient(circle at 52% 84%, rgba(255, 196, 40, .06), transparent 36%), rgba(0,0,0,.10); }
+      100% { background:radial-gradient(circle at 20% 22%, rgba(255, 48, 12, .095), transparent 33%), radial-gradient(circle at 86% 12%, rgba(255, 155, 20, .08), transparent 29%), radial-gradient(circle at 42% 88%, rgba(255, 230, 90, .05), transparent 35%), rgba(0,0,0,.09); }
+    }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
     .workgrid { display:grid; grid-template-columns: minmax(260px, .9fr) minmax(520px, 1.6fr); gap:16px; align-items:stretch; }
@@ -89,7 +95,7 @@ INDEX_HTML = r"""<!doctype html>
     tr.row-blocked td { background:rgba(255, 45, 22, .15); color:#ffd5c8; }
     tr.row-error td { background:rgba(255, 106, 0, .15); color:#ffe2a8; }
     code { color:#ffd45a; }
-    @media (prefers-reduced-motion: reduce) { h1 { animation:none; } }
+    @media (prefers-reduced-motion: reduce) { h1, main::before { animation:none; } }
     @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } .counter-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
   </style>
 </head>

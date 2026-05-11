@@ -12,11 +12,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
-ORTHOS_BASE_URL = os.environ.get("ORTHOS_BASE_URL", "https://chris13600k.tail406192.ts.net/v1").rstrip("/")
+ORTHOS_BASE_URL = os.environ.get(
+    "ORTHOS_BASE_URL", "https://chris13600k.tail406192.ts.net/v1"
+).rstrip("/")
 ORTHOS_API_TOKEN = os.environ.get("ORTHOS_API_TOKEN", "")
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8791"))
-TEST_MODEL = os.environ.get("ORTHOS_TEST_MODEL", "Qwen3-Coder-30B-A3B-Instruct-exl3-4.0bpw-H6")
+TEST_MODEL = os.environ.get(
+    "ORTHOS_TEST_MODEL", "Qwen3-Coder-30B-A3B-Instruct-exl3-4.0bpw-H6"
+)
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -25,7 +29,8 @@ INDEX_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orthos Read-Only</title>
-  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/favicon.ico?v=orthos-20260511" sizes="any">
+  <link rel="shortcut icon" href="/favicon.ico?v=orthos-20260511">
   <style>
     :root { color-scheme: dark; --bg:#111317; --panel:#1a1d23; --line:#303641; --text:#eef2f6; --muted:#9ca6b5; --good:#24c08b; --bad:#ff5f6d; --warn:#f1b84b; --blue:#6aa8ff; }
     * { box-sizing:border-box; }
@@ -249,7 +254,9 @@ INDEX_HTML = r"""<!doctype html>
 """
 
 
-def request_json(path: str, method: str = "GET", payload: dict | None = None, timeout: int = 45) -> tuple[int, dict, dict[str, str]]:
+def request_json(
+    path: str, method: str = "GET", payload: dict | None = None, timeout: int = 45
+) -> tuple[int, dict, dict[str, str]]:
     if not ORTHOS_API_TOKEN:
         raise RuntimeError("ORTHOS_API_TOKEN is not set")
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -276,8 +283,20 @@ def status_payload() -> dict:
     if code != 200:
         return {"status": "down", "error": data, "ts": time.time()}
     models_code, models_data, _ = request_json("/models", timeout=20)
-    found = [m.get("id", "") for m in models_data.get("data", []) if isinstance(m, dict) and m.get("id")] if models_code == 200 else []
-    data["model"] = {"available": TEST_MODEL in found, "id": TEST_MODEL, "models": found}
+    found = (
+        [
+            m.get("id", "")
+            for m in models_data.get("data", [])
+            if isinstance(m, dict) and m.get("id")
+        ]
+        if models_code == 200
+        else []
+    )
+    data["model"] = {
+        "available": TEST_MODEL in found,
+        "id": TEST_MODEL,
+        "models": found,
+    }
     return data
 
 
@@ -290,8 +309,16 @@ def health_test() -> dict:
 
     try:
         status_code, models, _ = request_json("/models", timeout=20)
-        found = [m.get("id", "") for m in models.get("data", []) if isinstance(m, dict) and m.get("id")]
-        add("Models endpoint", status_code == 200 and TEST_MODEL in found, ", ".join(found) if found else str(models))
+        found = [
+            m.get("id", "")
+            for m in models.get("data", [])
+            if isinstance(m, dict) and m.get("id")
+        ]
+        add(
+            "Models endpoint",
+            status_code == 200 and TEST_MODEL in found,
+            ", ".join(found) if found else str(models),
+        )
     except Exception as exc:
         add("Models endpoint", False, str(exc))
 
@@ -301,22 +328,42 @@ def health_test() -> dict:
             method="POST",
             payload={
                 "model": TEST_MODEL,
-                "messages": [{"role": "user", "content": "Reply exactly: dashboard ok"}],
+                "messages": [
+                    {"role": "user", "content": "Reply exactly: dashboard ok"}
+                ],
                 "max_tokens": 8,
                 "temperature": 0,
             },
             timeout=120,
         )
         if status_code == 429:
-            add("Chat completion", False, f"Queued too long; retry after {headers.get('Retry-After', '30')}s")
+            add(
+                "Chat completion",
+                False,
+                f"Queued too long; retry after {headers.get('Retry-After', '30')}s",
+            )
         else:
-            content = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip().lower()
-            add("Chat completion", status_code == 200 and "dashboard ok" in content, content or str(data))
+            content = (
+                str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))
+                .strip()
+                .lower()
+            )
+            add(
+                "Chat completion",
+                status_code == 200 and "dashboard ok" in content,
+                content or str(data),
+            )
     except Exception as exc:
         add("Chat completion", False, str(exc))
 
     failed = sum(1 for check in checks if not check["ok"])
-    return {"ok": failed == 0, "failed": failed, "checks": checks, "duration_ms": int((time.time() - started) * 1000), "ts": time.time()}
+    return {
+        "ok": failed == 0,
+        "failed": failed,
+        "checks": checks,
+        "duration_ms": int((time.time() - started) * 1000),
+        "ts": time.time(),
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -324,17 +371,20 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self) -> None:
-        if self.path == "/" or self.path == "/index.html":
-            self.send(HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+        path = self.path.split("?", 1)[0]
+        if path == "/" or path == "/index.html":
+            self.send(
+                HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8"
+            )
             return
-        if self.path == "/favicon.ico":
+        if path == "/favicon.ico":
             icon_path = ROOT / "favicon.ico"
             if icon_path.exists():
                 self.send(HTTPStatus.OK, icon_path.read_bytes(), "image/x-icon")
                 return
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
-        if self.path == "/api/status":
+        if path == "/api/status":
             try:
                 self.send_json(status_payload())
             except Exception as exc:

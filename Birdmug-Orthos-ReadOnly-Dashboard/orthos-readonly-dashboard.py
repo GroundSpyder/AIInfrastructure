@@ -28,7 +28,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Orthos Read-Only</title>
+  <title>Orthos API Dashboard</title>
   <link rel="icon" href="/favicon.ico?v=orthos-20260511" sizes="any">
   <link rel="shortcut icon" href="/favicon.ico?v=orthos-20260511">
   <style>
@@ -85,7 +85,7 @@ INDEX_HTML = r"""<!doctype html>
 </head>
 <body>
   <header>
-    <h1>Orthos Read-Only</h1>
+    <h1>Orthos API Dashboard</h1>
     <div class="small" id="updated">Loading...</div>
   </header>
   <main>

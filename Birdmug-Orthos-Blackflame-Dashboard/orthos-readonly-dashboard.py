@@ -28,17 +28,17 @@ INDEX_HTML = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Orthos Blackflame Dashboard</title>
+  <title>Orthos API Dashboard</title>
   <link rel="icon" href="/favicon.ico?v=orthos-20260511" sizes="any">
   <link rel="shortcut icon" href="/favicon.ico?v=orthos-20260511">
   <style>
-    :root { color-scheme: dark; --bg:#030303; --panel:#0b0b0c; --panel2:#141416; --line:#3a3a3d; --text:#f7f0e8; --muted:#9d9a96; --good:#ffd34a; --bad:#ff2d16; --warn:#ff6a00; --blue:#ffec73; --ember:#ff3b14; --ash:#1d1f22; }
+    :root { color-scheme: dark; --bg:#030303; --panel:#0b0b0c; --panel2:#141416; --line:#3a3a3d; --text:#f7f0e8; --muted:#9d9a96; --good:#25d58f; --bad:#ff2d16; --warn:#ff6a00; --blue:#f7f0e8; --ember:#ff3b14; --ash:#1d1f22; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(255, 45, 18, .30), transparent 31%), radial-gradient(circle at 82% -4%, rgba(255, 190, 24, .18), transparent 26%), linear-gradient(180deg, #070707, #020202 48%, #000); color:var(--text); }
     header { padding:18px 22px; border-bottom:1px solid #4e4e50; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(2, 2, 2, .98), rgba(15, 15, 16, .94) 55%, rgba(60, 9, 2, .72)); box-shadow:0 10px 30px rgba(0,0,0,.50), inset 0 -1px 0 rgba(255, 82, 20, .25); }
     .brand { display:flex; align-items:center; gap:10px; min-width:0; }
-    .brand-icon { width:32px; height:32px; flex:0 0 auto; filter:drop-shadow(0 0 10px rgba(255, 84, 20, .75)); }
-    h1 { margin:0; font-size:22px; font-weight:700; color:#fff0b8; text-shadow:0 0 12px rgba(255, 45, 18, .75), 0 0 28px rgba(255, 170, 24, .42); }
+    .brand-icon { width:32px; height:32px; flex:0 0 auto; }
+    h1 { margin:0; font-size:22px; font-weight:700; color:#fff7dc; text-shadow:0 0 6px rgba(255, 240, 170, .55), 0 0 14px rgba(255, 96, 0, .95), 0 0 32px rgba(255, 32, 8, .72), 0 0 56px rgba(255, 150, 0, .36); }
     main { padding:20px; display:grid; gap:16px; max-width:1320px; margin:0 auto; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
@@ -55,7 +55,7 @@ INDEX_HTML = r"""<!doctype html>
     .health-status { font-size:22px; font-weight:700; margin-top:6px; }
     .checks { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:8px; margin-top:12px; }
     .check { border:1px solid var(--line); background:#0d0d0e; border-radius:6px; padding:9px 10px; min-height:64px; }
-    .check.ok { border-color:#ff9b18; background:#18130a; }
+    .check.ok { border-color:#25d58f; background:#071812; }
     .check.fail { border-color:#ff2d16; background:#200b08; }
     .check .name { font-weight:700; }
     .check .detail { margin-top:4px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
@@ -66,7 +66,7 @@ INDEX_HTML = r"""<!doctype html>
     .counter-card .name { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
     .counter-tabs { display:flex; gap:8px; }
     .counter-tabs button { border-color:var(--line); background:#101112; padding:6px 9px; font-size:12px; }
-    .counter-tabs button.active { border-color:var(--blue); color:#fff1b8; background:#250b04; }
+    .counter-tabs button.active { border-color:#ff6a00; color:#fff1b8; background:#250b04; }
     .meter { height:8px; border-radius:999px; background:#020202; border:1px solid var(--line); overflow:hidden; margin-top:10px; }
     .meter > div { height:100%; background:linear-gradient(90deg, #ff1808, #ff6a00, #ffe95c); width:0%; box-shadow:0 0 14px rgba(255, 92, 0, .75); }
     table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -76,7 +76,7 @@ INDEX_HTML = r"""<!doctype html>
     .table-scroll table { min-width:760px; }
     .table-scroll thead th { position:sticky; top:0; background:var(--panel); z-index:1; }
     .status-pill { display:inline-block; min-width:42px; text-align:center; border-radius:999px; padding:2px 8px; font-weight:700; font-size:12px; border:1px solid var(--line); }
-    .status-ok { background:#1f1204; color:#fff1b8; border-color:#ff9b18; }
+    .status-ok { background:#071812; color:#caffeb; border-color:#25d58f; }
     .status-503, .status-429 { background:#3a0b05; color:#ffd5c8; border-color:#ff2d16; }
     .status-error { background:#2b1705; color:#ffe2a8; border-color:#ff7a00; }
     tr.row-blocked td { background:rgba(255, 45, 22, .15); color:#ffd5c8; }
@@ -87,7 +87,7 @@ INDEX_HTML = r"""<!doctype html>
 </head>
 <body>
   <header>
-    <div class="brand"><img class="brand-icon" src="/favicon.ico?v=orthos-20260511" alt=""><h1>Orthos Blackflame Dashboard</h1></div>
+    <div class="brand"><img class="brand-icon" src="/favicon.ico?v=orthos-20260511" alt=""><h1>Orthos API Dashboard</h1></div>
     <div class="small" id="updated">Loading...</div>
   </header>
   <main>

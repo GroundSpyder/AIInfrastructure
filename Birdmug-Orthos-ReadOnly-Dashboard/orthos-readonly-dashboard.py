@@ -8,8 +8,10 @@ import urllib.error
 import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parent
 ORTHOS_BASE_URL = os.environ.get("ORTHOS_BASE_URL", "https://chris13600k.tail406192.ts.net/v1").rstrip("/")
 ORTHOS_API_TOKEN = os.environ.get("ORTHOS_API_TOKEN", "")
 LISTEN_HOST = os.environ.get("LISTEN_HOST", "127.0.0.1")
@@ -23,6 +25,7 @@ INDEX_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orthos Read-Only</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
   <style>
     :root { color-scheme: dark; --bg:#111317; --panel:#1a1d23; --line:#303641; --text:#eef2f6; --muted:#9ca6b5; --good:#24c08b; --bad:#ff5f6d; --warn:#f1b84b; --blue:#6aa8ff; }
     * { box-sizing:border-box; }
@@ -323,6 +326,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/" or self.path == "/index.html":
             self.send(HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if self.path == "/favicon.ico":
+            icon_path = ROOT / "favicon.ico"
+            if icon_path.exists():
+                self.send(HTTPStatus.OK, icon_path.read_bytes(), "image/x-icon")
+                return
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
             return
         if self.path == "/api/status":
             try:

@@ -38,14 +38,13 @@ INDEX_HTML = r"""<!doctype html>
     header { padding:18px 22px; border-bottom:1px solid #4e4e50; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(2, 2, 2, .98), rgba(15, 15, 16, .94) 55%, rgba(60, 9, 2, .72)); box-shadow:0 10px 30px rgba(0,0,0,.50), inset 0 -1px 0 rgba(255, 82, 20, .25); }
     .brand { display:flex; align-items:center; gap:10px; min-width:0; }
     .brand-icon { width:32px; height:32px; flex:0 0 auto; }
-    h1 { margin:0; font-size:22px; font-weight:700; color:#fff7dc; text-shadow:0 0 6px rgba(255, 240, 170, .55), 0 0 14px rgba(255, 96, 0, .95), 0 0 32px rgba(255, 32, 8, .72), 0 0 56px rgba(255, 150, 0, .36); animation:blackflame-flicker 1.65s infinite alternate; }
+    h1 { margin:0; font-size:22px; font-weight:700; color:#fff7dc; text-shadow:0 0 4px rgba(255, 240, 170, .38), 0 0 10px rgba(255, 96, 0, .58), 0 0 22px rgba(255, 32, 8, .34), 0 0 38px rgba(255, 150, 0, .18); animation:blackflame-flicker 4.8s infinite alternate ease-in-out; }
     @keyframes blackflame-flicker {
-      0% { color:#fff8df; text-shadow:0 0 5px rgba(255, 245, 180, .45), 0 0 12px rgba(255, 96, 0, .70), 0 0 28px rgba(255, 32, 8, .50), 0 0 46px rgba(255, 150, 0, .22); }
-      18% { color:#fff2bd; text-shadow:0 0 7px rgba(255, 245, 180, .65), 0 0 18px rgba(255, 106, 0, .98), 0 0 38px rgba(255, 35, 8, .78), 0 0 64px rgba(255, 150, 0, .38); }
-      37% { color:#fff9e8; text-shadow:0 0 4px rgba(255, 245, 180, .38), 0 0 10px rgba(255, 85, 0, .62), 0 0 25px rgba(255, 30, 8, .52), 0 0 52px rgba(255, 130, 0, .30); }
-      61% { color:#ffeaa2; text-shadow:0 0 8px rgba(255, 245, 180, .78), 0 0 22px rgba(255, 115, 0, 1), 0 0 48px rgba(255, 35, 8, .86), 0 0 76px rgba(255, 170, 0, .44); }
-      83% { color:#fff5d0; text-shadow:0 0 6px rgba(255, 245, 180, .55), 0 0 15px rgba(255, 92, 0, .84), 0 0 34px rgba(255, 32, 8, .66), 0 0 58px rgba(255, 145, 0, .34); }
-      100% { color:#fff0b8; text-shadow:0 0 9px rgba(255, 245, 180, .72), 0 0 20px rgba(255, 112, 0, .96), 0 0 44px rgba(255, 28, 8, .82), 0 0 70px rgba(255, 160, 0, .40); }
+      0% { color:#fff8df; text-shadow:0 0 3px rgba(255, 245, 180, .32), 0 0 9px rgba(255, 96, 0, .42), 0 0 20px rgba(255, 32, 8, .25), 0 0 32px rgba(255, 150, 0, .12); }
+      28% { color:#fff4c6; text-shadow:0 0 4px rgba(255, 245, 180, .42), 0 0 11px rgba(255, 106, 0, .55), 0 0 24px rgba(255, 35, 8, .32), 0 0 40px rgba(255, 150, 0, .18); }
+      57% { color:#fff9e8; text-shadow:0 0 3px rgba(255, 245, 180, .28), 0 0 8px rgba(255, 85, 0, .38), 0 0 18px rgba(255, 30, 8, .24), 0 0 34px rgba(255, 130, 0, .14); }
+      78% { color:#fff0b8; text-shadow:0 0 5px rgba(255, 245, 180, .48), 0 0 13px rgba(255, 115, 0, .62), 0 0 27px rgba(255, 35, 8, .38), 0 0 46px rgba(255, 170, 0, .20); }
+      100% { color:#fff6d6; text-shadow:0 0 4px rgba(255, 245, 180, .36), 0 0 10px rgba(255, 112, 0, .50), 0 0 22px rgba(255, 28, 8, .30), 0 0 38px rgba(255, 160, 0, .16); }
     }
     main { padding:20px; display:grid; gap:16px; max-width:1320px; margin:0 auto; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }

@@ -7,13 +7,13 @@ INDEX_HTML: bytes = """<!doctype html>
   <link rel="icon" href="/lilblue.png" sizes="any">
   <link rel="shortcut icon" href="/lilblue.png">
   <style>
-    :root { color-scheme: dark; --bg:#010608; --panel:#080d14; --panel2:#0d1520; --line:#1a2a3a; --text:#ddeeff; --muted:#6a8aaa; --good:#00d9a0; --bad:#ff3366; --warn:#ffaa00; --blue:#4db8ff; --lilblue:#1a9fff; --ash:#0b1420; }
+    :root { color-scheme: dark; --bg:#010608; --panel:#080d14; --panel2:#0d1520; --line:#1a2a3a; --text:#ddeeff; --muted:#6a8aaa; --good:#00d9a0; --bad:#ff3366; --warn:#ffaa00; --blue:#4db8ff; --lilblue:#1a9fff; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(26, 159, 255, .18), transparent 32%), radial-gradient(circle at 82% -4%, rgba(0, 200, 255, .12), transparent 28%), linear-gradient(180deg, #040810, #010305 48%, #000); color:var(--text); }
     header { padding:18px 22px; border-bottom:1px solid #1a3050; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(1, 4, 10, .98), rgba(8, 18, 32, .94) 55%, rgba(2, 18, 40, .72)); box-shadow:0 10px 30px rgba(0,0,0,.60), inset 0 -1px 0 rgba(26, 159, 255, .20); }
     .brand { display:flex; align-items:center; gap:10px; min-width:0; }
     .brand-icon { width:32px; height:32px; flex:0 0 auto; border-radius:50%; }
-    h1 { margin:0; font-size:22px; font-weight:700; color:#a8d8ff; text-shadow:0 0 6px rgba(77, 184, 255, .55), 0 0 18px rgba(26, 159, 255, .38), 0 0 36px rgba(0, 160, 255, .20); animation:lilblue-pulse 5s infinite alternate ease-in-out; }
+    h1 { margin:0; font-size:22px; font-weight:700; color:#a8d8ff; text-shadow:0 0 6px rgba(77,184,255,.55), 0 0 18px rgba(26,159,255,.38), 0 0 36px rgba(0,160,255,.20); animation:lilblue-pulse 5s infinite alternate ease-in-out; }
     @keyframes lilblue-pulse {
       0%   { color:#9dd0ff; text-shadow:0 0 5px rgba(77,184,255,.45), 0 0 15px rgba(26,159,255,.30), 0 0 30px rgba(0,140,255,.16); }
       50%  { color:#c0e4ff; text-shadow:0 0 8px rgba(100,200,255,.60), 0 0 22px rgba(40,170,255,.42), 0 0 44px rgba(0,160,255,.22); }
@@ -30,7 +30,7 @@ INDEX_HTML: bytes = """<!doctype html>
     .value { font-size:22px; margin-top:8px; line-height:1.22; overflow-wrap:anywhere; }
     .small { color:var(--muted); font-size:13px; line-height:1.45; }
     .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); } .blue { color:var(--blue); }
-    button { border:1px solid #1a6aaa; background:linear-gradient(180deg, #061428, #020810); color:#a8d8ff; border-radius:6px; padding:10px 13px; cursor:pointer; font-weight:650; box-shadow:inset 0 1px 0 rgba(77, 184, 255, .15); }
+    button { border:1px solid #1a6aaa; background:linear-gradient(180deg, #061428, #020810); color:#a8d8ff; border-radius:6px; padding:10px 13px; cursor:pointer; font-weight:650; box-shadow:inset 0 1px 0 rgba(77,184,255,.15); }
     button:hover { background:linear-gradient(180deg, #0d2040, #04100e); border-color:#4db8ff; }
     .health-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap; }
     .health-status { font-size:22px; font-weight:700; margin-top:6px; }
@@ -40,46 +40,32 @@ INDEX_HTML: bytes = """<!doctype html>
     .check.fail { border-color:#ff3366; background:#180614; }
     .check .name { font-weight:700; }
     .check .detail { margin-top:4px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
-
-    /* VRAM panel */
-    .vram-idle { display:flex; align-items:center; justify-content:center; min-height:120px; }
-    .vram-idle-text { font-size:18px; color:var(--muted); font-weight:600; letter-spacing:.02em; }
-    .vram-list { display:grid; gap:10px; margin-top:10px; }
-    .vram-card { border:1px solid #1a4060; background:linear-gradient(135deg, #04101e, #060c18); border-radius:8px; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
-    .vram-card.loaded { border-color:#1a9fff; background:linear-gradient(135deg, #04101e, #071828); box-shadow:0 0 18px rgba(26,159,255,.12); }
-    .vram-model-name { font-size:18px; font-weight:700; color:#a8d8ff; }
-    .vram-model-meta { font-size:12px; color:var(--muted); margin-top:4px; }
-    .vram-badges { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .badge { border-radius:999px; padding:4px 12px; font-size:13px; font-weight:700; border:1px solid; }
-    .badge-vram { background:#071828; border-color:#1a6aaa; color:#4db8ff; font-size:15px; }
-    .badge-expiry { background:#0a1818; border-color:#006644; color:#00d9a0; }
-    .badge-expiry.expiring { background:#1a1000; border-color:#8a5000; color:#ffaa00; }
-    .badge-size { background:#060a14; border-color:#1a2a3a; color:#6a8aaa; }
-
-    .counter-grid { display:grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap:8px; margin-top:10px; }
+    .activebox { min-height:118px; max-height:178px; overflow:auto; margin:8px 0 0; white-space:pre-wrap; }
+    .counter-grid { display:grid; grid-template-columns: repeat(5, minmax(82px, 1fr)); gap:8px; margin-top:10px; }
     .counter-card { border:1px solid var(--line); background:#070c14; border-radius:6px; padding:9px; min-height:64px; }
     .counter-card .num { font-size:22px; font-weight:700; margin-top:4px; }
     .counter-card .name { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    .meter { height:8px; border-radius:999px; background:#010608; border:1px solid var(--line); overflow:hidden; margin-top:10px; }
+    .meter > div { height:100%; background:linear-gradient(90deg, #1a9fff, #4db8ff, #a0d8ff); width:0%; box-shadow:0 0 14px rgba(26,159,255,.75); }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
-    .table-scroll { max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
+    .table-scroll { max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
     .table-scroll table { min-width:600px; }
     .table-scroll thead th { position:sticky; top:0; background:var(--panel); z-index:1; }
-    .size-cell { white-space:nowrap; }
-    @media (prefers-reduced-motion: reduce) { h1 { animation:none; } }
-    @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr 1fr; } }
-    @media (max-width: 600px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } }
+    code { color:#4db8ff; }
+    @media (prefers-reduced-motion: reduce) { h1, main::before { animation:none; } }
+    @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } .counter-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand"><img class="brand-icon" src="/lilblue.png" alt="LilBlue"><h1>LilBlue Dashboard</h1></div>
+    <div class="brand"><img class="brand-icon" src="/lilblue.png" alt=""><h1>LilBlue Dashboard</h1></div>
     <div class="small" id="updated">Loading...</div>
   </header>
   <main>
     <section class="grid">
-      <div class="panel status-card"><div class="label">LilBlue</div><div class="value" id="status">...</div></div>
+      <div class="panel status-card"><div class="label">LilBlue</div><div class="value" id="overall">...</div></div>
       <div class="panel status-card"><div class="label">Model</div><div class="value" id="model">...</div></div>
       <div class="panel status-card"><div class="label">Version</div><div class="value" id="version">...</div></div>
       <div class="panel status-card"><div class="label">VRAM</div><div class="value" id="vramStatus">...</div></div>
@@ -97,18 +83,28 @@ INDEX_HTML: bytes = """<!doctype html>
     </section>
     <section class="workgrid">
       <div class="panel">
-        <div class="label">Currently Loaded in VRAM</div>
-        <div id="vramModels"></div>
+        <div class="label">Currently in VRAM</div>
+        <pre id="active" class="small activebox">No models loaded</pre>
       </div>
       <div class="panel">
-        <div class="label">Model Library</div>
-        <div id="libraryCounters" class="counter-grid"></div>
+        <div class="label">Model Counters</div>
+        <div id="counters" class="counter-grid"></div>
       </div>
     </section>
     <section class="grid3">
-      <div class="panel"><div class="label">Installed Models</div><div class="value" id="statInstalled">...</div></div>
-      <div class="panel"><div class="label">Total Disk Usage</div><div class="value" id="statDisk">...</div></div>
-      <div class="panel"><div class="label">VRAM In Use</div><div class="value" id="statVram">...</div></div>
+      <div class="panel">
+        <div class="label">VRAM Usage</div>
+        <div class="value" id="vramLoad">...</div>
+        <div class="meter"><div id="vramMeter"></div></div>
+      </div>
+      <div class="panel">
+        <div class="label">Model Library</div>
+        <div class="value" id="libraryStats">...</div>
+      </div>
+      <div class="panel">
+        <div class="label">Storage</div>
+        <div class="value" id="storageStats">...</div>
+      </div>
     </section>
     <section class="panel">
       <div class="label">Available Models</div>
@@ -124,12 +120,11 @@ INDEX_HTML: bytes = """<!doctype html>
       return b + ' B';
     }
     function fmtExpiry(ts) {
-      if (!ts) return null;
+      if (!ts) return '';
       const diff = Math.round((new Date(ts) - Date.now()) / 1000);
-      if (diff <= 0) return { label: 'expired', expiring: true };
-      if (diff < 60) return { label: diff + 's', expiring: true };
-      const mins = Math.round(diff / 60);
-      return { label: mins + 'm', expiring: mins < 5 };
+      if (diff <= 0) return 'expired';
+      if (diff < 60) return diff + 's';
+      return Math.round(diff / 60) + 'm';
     }
     async function refresh() {
       try {
@@ -137,87 +132,80 @@ INDEX_HTML: bytes = """<!doctype html>
         renderStatus(s);
       } catch(e) {
         document.getElementById('updated').textContent = 'Refresh failed - ' + new Date().toLocaleTimeString();
-        document.getElementById('status').innerHTML = '<span class="bad">Down</span>';
+        document.getElementById('overall').innerHTML = '<span class="bad">Down</span>';
       }
     }
     function renderStatus(s) {
-      document.getElementById('updated').textContent = 'Auto-refresh every 10s — Updated ' + new Date().toLocaleTimeString();
       const up = s.status === 'up';
       const loaded = s.loaded || [];
-      document.getElementById('status').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
+      document.getElementById('updated').textContent = 'Auto-refresh every 10s - Updated ' + new Date().toLocaleTimeString();
+      document.getElementById('overall').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
       document.getElementById('model').innerHTML = up
         ? `<span class="${s.model?.available ? 'good' : 'bad'}">${s.model?.available ? 'Available' : 'Unavailable'}</span><div class="small">${esc(s.model?.id || '?')}</div>`
-        : '<span class="bad">—</span>';
-      document.getElementById('version').innerHTML = up ? `<span class="blue">${esc(s.version || '?')}</span>` : '<span class="bad">—</span>';
+        : '<span class="bad">-</span>';
+      document.getElementById('version').innerHTML = up ? `<span class="blue">${esc(s.version || '?')}</span>` : '<span class="bad">-</span>';
       document.getElementById('vramStatus').innerHTML = loaded.length > 0
         ? `<span class="warn">Active</span><div class="small">${loaded.length} model${loaded.length !== 1 ? 's' : ''} loaded</div>`
         : `<span class="good">Idle</span>`;
-      renderVram(loaded);
-      renderAvailable(s.available || []);
-      renderLibrary(s.available || []);
-      renderGrid3(s);
+      renderActive(loaded);
+      renderCounters(s.available || [], loaded);
+      renderPerf(s.available || [], loaded);
+      renderModels(s.available || []);
     }
-    function renderVram(models) {
-      const el = document.getElementById('vramModels');
-      if (!models.length) {
-        el.innerHTML = '<div class="vram-idle"><span class="vram-idle-text">Idle — no models in VRAM</span></div>';
-        return;
-      }
-      el.innerHTML = '<div class="vram-list">' + models.map(m => {
-        const name = m.name || m.model || '?';
-        const vram = m.size_vram ? fmtBytes(m.size_vram) : null;
-        const size = m.size ? fmtBytes(m.size) : null;
-        const expiry = m.expires_at ? fmtExpiry(m.expires_at) : null;
-        const vramBadge = vram ? `<span class="badge badge-vram">${esc(vram)} VRAM</span>` : '';
-        const expiryBadge = expiry ? `<span class="badge badge-expiry${expiry.expiring ? ' expiring' : ''}">expires ${esc(expiry.label)}</span>` : '';
-        const sizeBadge = size ? `<span class="badge badge-size">${esc(size)} total</span>` : '';
-        return `<div class="vram-card loaded">
-          <div>
-            <div class="vram-model-name">${esc(name)}</div>
-            <div class="vram-model-meta">Loaded and ready</div>
-          </div>
-          <div class="vram-badges">${vramBadge}${expiryBadge}${sizeBadge}</div>
-        </div>`;
-      }).join('') + '</div>';
-    }
-    function renderAvailable(models) {
-      document.getElementById('modelTable').innerHTML = models.map(m => {
-        const d = m.details || {};
-        return `<tr>
-          <td><strong>${esc(m.name || m.model || '?')}</strong></td>
-          <td>${esc(d.family || '—')}</td>
-          <td>${esc(d.parameter_size || '—')}</td>
-          <td>${esc(d.quantization_level || '—')}</td>
-          <td class="size-cell">${fmtBytes(m.size)}</td>
-        </tr>`;
-      }).join('');
+    function renderActive(loaded) {
+      if (!loaded.length) { document.getElementById('active').textContent = 'No models in VRAM'; return; }
+      document.getElementById('active').textContent = loaded.map(m => {
+        const expiry = m.expires_at ? fmtExpiry(m.expires_at) : '';
+        return [
+          `model:   ${m.name || m.model || '?'}`,
+          `vram:    ${m.size_vram ? fmtBytes(m.size_vram) : '-'}`,
+          `size:    ${m.size ? fmtBytes(m.size) : '-'}`,
+          expiry ? `expires: ${expiry}` : ''
+        ].filter(Boolean).join('\n');
+      }).join('\n\n');
     }
     function counterCard(name, value, klass='') {
       return `<div class="counter-card"><div class="name">${name}</div><div class="num ${klass}">${value}</div></div>`;
     }
-    function renderLibrary(models) {
-      const families = {};
-      for (const m of models) {
-        const fam = (m.details?.family || 'other').toLowerCase();
-        families[fam] = (families[fam] || 0) + 1;
-      }
-      const topFamilies = Object.entries(families).sort((a,b) => b[1]-a[1]).slice(0,3);
-      const cards = topFamilies.map(([fam, cnt]) => counterCard(fam, cnt, 'blue'));
-      while (cards.length < 3) cards.push(counterCard('—', '—'));
-      document.getElementById('libraryCounters').innerHTML = cards.join('');
+    function renderCounters(available, loaded) {
+      const totalVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
+      const totalDisk = available.reduce((a, m) => a + (m.size || 0), 0);
+      document.getElementById('counters').innerHTML =
+        counterCard('Installed', available.length, 'blue') +
+        counterCard('In VRAM', loaded.length, loaded.length ? 'warn' : 'good') +
+        counterCard('Families', new Set(available.map(m => m.details?.family || 'other')).size, 'blue') +
+        counterCard('Disk', fmtBytes(totalDisk), '') +
+        counterCard('VRAM Used', totalVram ? fmtBytes(totalVram) : 'None', totalVram ? 'warn' : 'good');
     }
-    function renderGrid3(s) {
-      const avail = s.available || [];
-      const loaded = s.loaded || [];
-      const totalSize = avail.reduce((a, m) => a + (m.size || 0), 0);
-      const loadedVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
-      document.getElementById('statInstalled').innerHTML =
-        `<span class="blue">${avail.length}</span>`;
-      document.getElementById('statDisk').innerHTML =
-        `<span class="blue">${fmtBytes(totalSize)}</span>`;
-      document.getElementById('statVram').innerHTML = loadedVram > 0
-        ? `<span class="warn">${fmtBytes(loadedVram)}</span>`
+    function renderPerf(available, loaded) {
+      const totalVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
+      const totalDisk = available.reduce((a, m) => a + (m.size || 0), 0);
+      const VRAM_MAX = 8 * 1e9;
+      const vramPct = Math.min(100, totalVram / VRAM_MAX * 100);
+      document.getElementById('vramLoad').innerHTML = totalVram
+        ? `<span class="warn">${fmtBytes(totalVram)}</span>`
         : `<span class="good">None</span>`;
+      document.getElementById('vramMeter').style.width = vramPct + '%';
+      const families = {};
+      for (const m of available) {
+        const f = m.details?.family || 'other';
+        families[f] = (families[f] || 0) + 1;
+      }
+      document.getElementById('libraryStats').innerHTML = Object.entries(families)
+        .sort((a, b) => b[1] - a[1])
+        .map(([f, n]) => `${esc(f)}: <span class="blue">${n}</span>`)
+        .join('<br>') || '<span class="muted">-</span>';
+      const largest = available.slice().sort((a, b) => (b.size || 0) - (a.size || 0))[0];
+      document.getElementById('storageStats').innerHTML =
+        `Total: <span class="blue">${fmtBytes(totalDisk)}</span><br>` +
+        `Models: <span class="blue">${available.length}</span><br>` +
+        (largest ? `Largest: ${esc((largest.name || largest.model || '').split(':')[0])}` : '');
+    }
+    function renderModels(models) {
+      document.getElementById('modelTable').innerHTML = models.map(m => {
+        const d = m.details || {};
+        return `<tr><td><strong>${esc(m.name || m.model || '?')}</strong></td><td>${esc(d.family || '-')}</td><td>${esc(d.parameter_size || '-')}</td><td>${esc(d.quantization_level || '-')}</td><td>${fmtBytes(m.size)}</td></tr>`;
+      }).join('');
     }
     async function runHealthTest() {
       const result = document.getElementById('healthResult');
@@ -244,7 +232,7 @@ INDEX_HTML: bytes = """<!doctype html>
       result.textContent = data.ok ? 'LilBlue test passed' : `${data.failed || 0} check(s) failed`;
       meta.textContent = `Completed in ${data.duration_ms || 0}ms at ${new Date((data.ts || Date.now()/1000)*1000).toLocaleTimeString()}`;
       document.getElementById('healthChecks').innerHTML = (data.checks || []).map(c =>
-        `<div class="check ${c.ok ? 'ok' : 'fail'}"><div class="name ${c.ok ? 'good' : 'bad'}">${c.ok ? 'OK' : 'FAIL'} — ${esc(c.name)}</div><div class="detail">${esc(c.detail || '')}</div></div>`
+        `<div class="check ${c.ok ? 'ok' : 'fail'}"><div class="name ${c.ok ? 'good' : 'bad'}">${c.ok ? 'OK' : 'FAIL'} - ${esc(c.name)}</div><div class="detail">${esc(c.detail || '')}</div></div>`
       ).join('');
     }
     refresh();

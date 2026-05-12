@@ -20,8 +20,7 @@ INDEX_HTML: bytes = """<!doctype html>
     main::before { content:""; position:absolute; inset:8px; border-radius:10px; background:radial-gradient(circle at 20% 10%, rgba(26,159,255,.07), transparent 34%), radial-gradient(circle at 80% 20%, rgba(0,200,255,.06), transparent 30%), rgba(0,0,0,.06); opacity:.75; z-index:-1; pointer-events:none; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
-    .workgrid { display:grid; grid-template-columns: minmax(300px, 1.8fr) minmax(200px, .8fr); gap:16px; align-items:stretch; }
-    .panel { background:linear-gradient(180deg, #0d1520, #060a10); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.50), inset 0 1px 0 rgba(77,184,255,.05); }
+.panel { background:linear-gradient(180deg, #0d1520, #060a10); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.50), inset 0 1px 0 rgba(77,184,255,.05); }
     .status-card { min-height:118px; overflow:hidden; }
     .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
     .value { font-size:22px; margin-top:8px; line-height:1.22; overflow-wrap:anywhere; }
@@ -53,13 +52,7 @@ INDEX_HTML: bytes = """<!doctype html>
     .badge-expiry.expiring { background:#1a1000; border-color:#8a5000; color:#ffaa00; }
     .badge-size { background:#060a14; border-color:#1a2a3a; color:#6a8aaa; }
 
-    /* Quick stats */
-    .stat-row { display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--line); }
-    .stat-row:last-child { border-bottom:none; }
-    .stat-label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
-    .stat-val { font-size:16px; font-weight:700; }
-
-    table { width:100%; border-collapse:collapse; font-size:13px; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
     .table-scroll { max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
@@ -94,15 +87,14 @@ INDEX_HTML: bytes = """<!doctype html>
       </div>
       <div id="healthChecks" class="checks"></div>
     </section>
-    <section class="workgrid">
-      <div class="panel">
-        <div class="label">Currently Loaded in VRAM</div>
-        <div id="vramModels"></div>
-      </div>
-      <div class="panel">
-        <div class="label">Quick Stats</div>
-        <div id="quickStats" style="margin-top:10px"></div>
-      </div>
+    <section class="panel">
+      <div class="label">Currently Loaded in VRAM</div>
+      <div id="vramModels"></div>
+    </section>
+    <section class="grid3">
+      <div class="panel"><div class="label">Installed Models</div><div class="value" id="statInstalled">...</div></div>
+      <div class="panel"><div class="label">Total Disk Usage</div><div class="value" id="statDisk">...</div></div>
+      <div class="panel"><div class="label">VRAM In Use</div><div class="value" id="statVram">...</div></div>
     </section>
     <section class="panel">
       <div class="label">Available Models</div>
@@ -147,7 +139,7 @@ INDEX_HTML: bytes = """<!doctype html>
         : `<span class="muted" style="color:var(--muted)">0</span>`;
       renderVram(s.loaded || []);
       renderAvailable(s.available || []);
-      renderQuickStats(s);
+      renderGrid3(s);
     }
     function renderVram(models) {
       const el = document.getElementById('vramModels');
@@ -184,21 +176,18 @@ INDEX_HTML: bytes = """<!doctype html>
         </tr>`;
       }).join('');
     }
-    function renderQuickStats(s) {
+    function renderGrid3(s) {
       const avail = s.available || [];
       const loaded = s.loaded || [];
       const totalSize = avail.reduce((a, m) => a + (m.size || 0), 0);
       const loadedVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
-      document.getElementById('quickStats').innerHTML = [
-        { label: 'Installed', val: `<span class="blue">${avail.length}</span>` },
-        { label: 'Disk usage', val: `<span class="blue">${fmtBytes(totalSize)}</span>` },
-        { label: 'VRAM in use', val: loadedVram > 0
-            ? `<span class="warn">${fmtBytes(loadedVram)}</span>`
-            : `<span class="good">None</span>` },
-        { label: 'Active slots', val: loaded.length > 0
-            ? `<span class="good">${loaded.length}</span>`
-            : `<span class="muted" style="color:var(--muted)">0</span>` },
-      ].map(r => `<div class="stat-row"><span class="stat-label">${r.label}</span><span class="stat-val">${r.val}</span></div>`).join('');
+      document.getElementById('statInstalled').innerHTML =
+        `<span class="blue">${avail.length}</span>`;
+      document.getElementById('statDisk').innerHTML =
+        `<span class="blue">${fmtBytes(totalSize)}</span>`;
+      document.getElementById('statVram').innerHTML = loadedVram > 0
+        ? `<span class="warn">${fmtBytes(loadedVram)}</span>`
+        : `<span class="good">None</span>`;
     }
     async function runHealthTest() {
       const result = document.getElementById('healthResult');

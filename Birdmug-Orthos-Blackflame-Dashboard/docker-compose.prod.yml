@@ -1,0 +1,53 @@
+services:
+  obd:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: obd
+    restart: on-failure:3
+    # host networking required: obd must reach chris13600k via Tailscale (policy
+    # routing table 52) which is only visible from the host network namespace,
+    # not from Docker bridge networks.
+    network_mode: "host"
+    environment:
+      ORTHOS_BASE_URL: ${ORTHOS_BASE_URL:-https://chris13600k.tail406192.ts.net/v1}
+      ORTHOS_API_TOKEN: ${ORTHOS_API_TOKEN}
+      ORTHOS_TEST_MODEL: ${ORTHOS_TEST_MODEL:-Qwen3-Coder-30B-A3B-Instruct-exl3-4.0bpw-H6}
+      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET}
+      BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
+      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY}
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8791/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: obd_cloudflared
+    restart: on-failure:3
+    # host networking so cloudflared can reach localhost:8791 (obd)
+    network_mode: "host"
+    command: tunnel --no-autoupdate --config /etc/cloudflared/obd-config.yml run
+    volumes:
+      - /home/falkensteink/.cloudflared:/etc/cloudflared
+    depends_on:
+      obd:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -1,0 +1,56 @@
+services:
+  lilblue-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: lilblue_dashboard
+    restart: on-failure:3
+    ports:
+      - "127.0.0.1:8792:8792"
+    environment:
+      OLLAMA_URL: ${OLLAMA_URL:-http://kaydanskipc:11434}
+      LILBLUE_TEST_MODEL: ${LILBLUE_TEST_MODEL:-qwen2.5:7b}
+      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET}
+      BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
+      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY}
+    networks:
+      - lilblue_net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8792/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: lilblue_cloudflared
+    restart: on-failure:3
+    command: tunnel --no-autoupdate --config /etc/cloudflared/lilblue-config.yml run
+    volumes:
+      - /home/falkensteink/.cloudflared:/etc/cloudflared
+    networks:
+      - lilblue_net
+    depends_on:
+      lilblue-dashboard:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  lilblue_net:
+    name: lilblue_net

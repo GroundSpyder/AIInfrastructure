@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY server/ ./server/
+
+EXPOSE 8792
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8792/health', timeout=3)"
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8792", "--workers", "2", "--timeout", "120", "server.app:app"]

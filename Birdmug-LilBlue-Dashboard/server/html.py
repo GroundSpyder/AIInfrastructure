@@ -9,8 +9,8 @@ INDEX_HTML: bytes = """<!doctype html>
   <style>
     :root { color-scheme: dark; --bg:#010608; --panel:#080d14; --panel2:#0d1520; --line:#1a2a3a; --text:#ddeeff; --muted:#6a8aaa; --good:#00d9a0; --bad:#ff3366; --warn:#ffaa00; --blue:#4db8ff; --lilblue:#1a9fff; }
     * { box-sizing:border-box; }
-    body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(26, 159, 255, .18), transparent 32%), radial-gradient(circle at 82% -4%, rgba(0, 200, 255, .12), transparent 28%), linear-gradient(180deg, #040810, #010305 48%, #000); color:var(--text); }
-    header { padding:18px 22px; border-bottom:1px solid #1a3050; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(1, 4, 10, .98), rgba(8, 18, 32, .94) 55%, rgba(2, 18, 40, .72)); box-shadow:0 10px 30px rgba(0,0,0,.60), inset 0 -1px 0 rgba(26, 159, 255, .20); }
+    body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(26,159,255,.18), transparent 32%), radial-gradient(circle at 82% -4%, rgba(0,200,255,.12), transparent 28%), linear-gradient(180deg, #040810, #010305 48%, #000); color:var(--text); }
+    header { padding:18px 22px; border-bottom:1px solid #1a3050; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(1,4,10,.98), rgba(8,18,32,.94) 55%, rgba(2,18,40,.72)); box-shadow:0 10px 30px rgba(0,0,0,.60), inset 0 -1px 0 rgba(26,159,255,.20); }
     .brand { display:flex; align-items:center; gap:10px; min-width:0; }
     .brand-icon { width:32px; height:32px; flex:0 0 auto; border-radius:50%; }
     h1 { margin:0; font-size:22px; font-weight:700; color:#a8d8ff; text-shadow:0 0 6px rgba(77,184,255,.55), 0 0 18px rgba(26,159,255,.38), 0 0 36px rgba(0,160,255,.20); animation:lilblue-pulse 5s infinite alternate ease-in-out; }
@@ -45,14 +45,23 @@ INDEX_HTML: bytes = """<!doctype html>
     .counter-card { border:1px solid var(--line); background:#070c14; border-radius:6px; padding:9px; min-height:64px; }
     .counter-card .num { font-size:22px; font-weight:700; margin-top:4px; }
     .counter-card .name { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    .counter-tabs { display:flex; gap:8px; }
+    .counter-tabs button { border-color:var(--line); background:#070c14; padding:6px 9px; font-size:12px; }
+    .counter-tabs button.active { border-color:#1a9fff; color:#a8d8ff; background:#04101e; }
     .meter { height:8px; border-radius:999px; background:#010608; border:1px solid var(--line); overflow:hidden; margin-top:10px; }
     .meter > div { height:100%; background:linear-gradient(90deg, #1a9fff, #4db8ff, #a0d8ff); width:0%; box-shadow:0 0 14px rgba(26,159,255,.75); }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
     .table-scroll { max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
-    .table-scroll table { min-width:600px; }
+    .table-scroll table { min-width:760px; }
     .table-scroll thead th { position:sticky; top:0; background:var(--panel); z-index:1; }
+    .status-pill { display:inline-block; min-width:42px; text-align:center; border-radius:999px; padding:2px 8px; font-weight:700; font-size:12px; border:1px solid var(--line); }
+    .status-ok { background:#041a14; color:#caffeb; border-color:#00d9a0; }
+    .status-503, .status-429 { background:#180614; color:#ffd5c8; border-color:#ff3366; }
+    .status-error { background:#1a1000; color:#ffe2a8; border-color:#ffaa00; }
+    tr.row-blocked td { background:rgba(255,51,102,.10); color:#ffd5c8; }
+    tr.row-error td { background:rgba(255,170,0,.10); color:#ffe2a8; }
     code { color:#4db8ff; }
     @media (prefers-reduced-motion: reduce) { h1, main::before { animation:none; } }
     @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } .counter-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
@@ -83,48 +92,40 @@ INDEX_HTML: bytes = """<!doctype html>
     </section>
     <section class="workgrid">
       <div class="panel">
-        <div class="label">Currently in VRAM</div>
-        <pre id="active" class="small activebox">No models loaded</pre>
+        <div class="label">Current Interface Request</div>
+        <pre id="active" class="small activebox">No request in flight</pre>
       </div>
       <div class="panel">
-        <div class="label">Model Counters</div>
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+          <div class="label">Traffic Counters</div>
+          <div class="counter-tabs">
+            <button id="counter5" class="active" onclick="setCounterWindow('last_5_minutes')">5m</button>
+            <button id="counter60" onclick="setCounterWindow('last_hour')">1h</button>
+          </div>
+        </div>
         <div id="counters" class="counter-grid"></div>
       </div>
     </section>
     <section class="grid3">
-      <div class="panel">
-        <div class="label">VRAM Usage</div>
-        <div class="value" id="vramLoad">...</div>
-        <div class="meter"><div id="vramMeter"></div></div>
-      </div>
-      <div class="panel">
-        <div class="label">Model Library</div>
-        <div class="value" id="libraryStats">...</div>
-      </div>
-      <div class="panel">
-        <div class="label">Storage</div>
-        <div class="value" id="storageStats">...</div>
-      </div>
+      <div class="panel"><div class="label">Current Speed</div><div class="value" id="speedNow">...</div><div class="meter"><div id="speedMeter"></div></div></div>
+      <div class="panel"><div class="label">Processed Tokens</div><div class="value" id="tokensWindow">...</div></div>
+      <div class="panel"><div class="label">Recent Workload</div><div class="value" id="workload">...</div></div>
     </section>
     <section class="panel">
-      <div class="label">Available Models</div>
-      <div class="table-scroll"><table><thead><tr><th>Model</th><th>Family</th><th>Params</th><th>Quant</th><th>Size</th></tr></thead><tbody id="modelTable"></tbody></table></div>
+      <div class="label">Recent LilBlue Traffic</div>
+      <div class="table-scroll"><table><thead><tr><th>Time</th><th>Endpoint</th><th>Status</th><th>Duration</th><th>Queue</th><th>Model</th><th>Category</th></tr></thead><tbody id="metrics"></tbody></table></div>
     </section>
   </main>
   <script>
+    let counterWindow = 'last_5_minutes';
     const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-    function fmtBytes(b) {
-      b = Number(b || 0);
-      if (b >= 1e9) return (b/1e9).toFixed(1) + ' GB';
-      if (b >= 1e6) return (b/1e6).toFixed(0) + ' MB';
-      return b + ' B';
-    }
-    function fmtExpiry(ts) {
-      if (!ts) return '';
-      const diff = Math.round((new Date(ts) - Date.now()) / 1000);
-      if (diff <= 0) return 'expired';
-      if (diff < 60) return diff + 's';
-      return Math.round(diff / 60) + 'm';
+    const fmtTime = ts => ts ? new Date(ts * 1000).toLocaleTimeString() : '';
+    function fmtDuration(ms) {
+      ms = Number(ms || 0);
+      if (ms < 1000) return `${ms}ms`;
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
     }
     async function refresh() {
       try {
@@ -147,64 +148,56 @@ INDEX_HTML: bytes = """<!doctype html>
       document.getElementById('vramStatus').innerHTML = loaded.length > 0
         ? `<span class="warn">Active</span><div class="small">${loaded.length} model${loaded.length !== 1 ? 's' : ''} loaded</div>`
         : `<span class="good">Idle</span>`;
-      renderActive(loaded);
-      renderCounters(s.available || [], loaded);
-      renderPerf(s.available || [], loaded);
-      renderModels(s.available || []);
+      const cur = s.current || {};
+      document.getElementById('active').textContent = Object.keys(cur).length
+        ? JSON.stringify(cur, null, 2)
+        : 'No request in flight';
+      renderCounters(s.traffic?.counters || {});
+      renderPerf(s.performance || {});
+      renderMetrics(s.traffic?.metrics || []);
     }
-    function renderActive(loaded) {
-      if (!loaded.length) { document.getElementById('active').textContent = 'No models in VRAM'; return; }
-      document.getElementById('active').textContent = loaded.map(m => {
-        const expiry = m.expires_at ? fmtExpiry(m.expires_at) : '';
-        return [
-          `model:   ${m.name || m.model || '?'}`,
-          `vram:    ${m.size_vram ? fmtBytes(m.size_vram) : '-'}`,
-          `size:    ${m.size ? fmtBytes(m.size) : '-'}`,
-          expiry ? `expires: ${expiry}` : ''
-        ].filter(Boolean).join('\n');
-      }).join('\n\n');
+    function setCounterWindow(name) {
+      counterWindow = name;
+      document.getElementById('counter5').classList.toggle('active', name === 'last_5_minutes');
+      document.getElementById('counter60').classList.toggle('active', name === 'last_hour');
+      refresh();
     }
     function counterCard(name, value, klass='') {
-      return `<div class="counter-card"><div class="name">${name}</div><div class="num ${klass}">${value}</div></div>`;
+      return `<div class="counter-card"><div class="name">${name}</div><div class="num ${klass}">${Number(value || 0).toLocaleString()}</div></div>`;
     }
-    function renderCounters(available, loaded) {
-      const totalVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
-      const totalDisk = available.reduce((a, m) => a + (m.size || 0), 0);
+    function renderCounters(c) {
+      const row = c[counterWindow] || {};
       document.getElementById('counters').innerHTML =
-        counterCard('Installed', available.length, 'blue') +
-        counterCard('In VRAM', loaded.length, loaded.length ? 'warn' : 'good') +
-        counterCard('Families', new Set(available.map(m => m.details?.family || 'other')).size, 'blue') +
-        counterCard('Disk', fmtBytes(totalDisk), '') +
-        counterCard('VRAM Used', totalVram ? fmtBytes(totalVram) : 'None', totalVram ? 'warn' : 'good');
+        counterCard('Requests', row.requests, 'blue') +
+        counterCard('Success', row.success, 'good') +
+        counterCard('401s', row.unauthorized, row.unauthorized ? 'warn' : '') +
+        counterCard('Blocked', row.blocked, row.blocked ? 'warn' : '') +
+        counterCard('Errors', (row.upstream_errors || 0) + (row.rate_limited || 0), (row.upstream_errors || row.rate_limited) ? 'bad' : '');
     }
-    function renderPerf(available, loaded) {
-      const totalVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
-      const totalDisk = available.reduce((a, m) => a + (m.size || 0), 0);
-      const VRAM_MAX = 8 * 1e9;
-      const vramPct = Math.min(100, totalVram / VRAM_MAX * 100);
-      document.getElementById('vramLoad').innerHTML = totalVram
-        ? `<span class="warn">${fmtBytes(totalVram)}</span>`
-        : `<span class="good">None</span>`;
-      document.getElementById('vramMeter').style.width = vramPct + '%';
-      const families = {};
-      for (const m of available) {
-        const f = m.details?.family || 'other';
-        families[f] = (families[f] || 0) + 1;
-      }
-      document.getElementById('libraryStats').innerHTML = Object.entries(families)
-        .sort((a, b) => b[1] - a[1])
-        .map(([f, n]) => `${esc(f)}: <span class="blue">${n}</span>`)
-        .join('<br>') || '<span class="muted">-</span>';
-      const largest = available.slice().sort((a, b) => (b.size || 0) - (a.size || 0))[0];
-      document.getElementById('storageStats').innerHTML =
-        `Total: <span class="blue">${fmtBytes(totalDisk)}</span><br>` +
-        `Models: <span class="blue">${available.length}</span><br>` +
-        (largest ? `Largest: ${esc((largest.name || largest.model || '').split(':')[0])}` : '');
+    function renderPerf(p) {
+      const latest = p.latest || {};
+      const gen = latest.generate_tps || 0;
+      const prompt = latest.prompt_tps || 0;
+      document.getElementById('speedNow').innerHTML = latest.generated_tokens
+        ? `<span class="good">${Number(gen).toFixed(1)}</span> gen t/s<br><span class="blue">${Number(prompt).toFixed(0)}</span> prompt t/s`
+        : '<span class="warn">No recent generation</span>';
+      document.getElementById('speedMeter').style.width = `${Math.min(100, gen / 80 * 100)}%`;
+      const w = p.windows || {};
+      document.getElementById('tokensWindow').innerHTML =
+        `1h: <span class="blue">${(w['1h']?.tokens || 0).toLocaleString()}</span><br>` +
+        `12h: <span class="blue">${(w['12h']?.tokens || 0).toLocaleString()}</span><br>` +
+        `24h: <span class="blue">${(w['24h']?.tokens || 0).toLocaleString()}</span>`;
+      document.getElementById('workload').innerHTML =
+        `1h: ${w['1h']?.requests || 0} req<br>` +
+        `avg gen: ${(w['1h']?.avg_generate_tps || 0).toFixed(1)} t/s<br>` +
+        `max ctx: ${(w['1h']?.max_context || 0).toLocaleString()}`;
     }
-    function renderModels(models) {
-      document.getElementById('modelTable').innerHTML = models.map(m => {
-        const d = m.details || {};
-        return `<tr><td><strong>${esc(m.name || m.model || '?')}</strong></td><td>${esc(d.family || '-')}</td><td>${esc(d.parameter_size || '-')}</td><td>${esc(d.quantization_level || '-')}</td><td>${fmtBytes(m.size)}</td></tr>`;
+    function renderMetrics(metrics) {
+      document.getElementById('metrics').innerHTML = metrics.slice(0, 40).map(m => {
+        const status = Number(m.status || 0);
+        const rowClass = status === 503 || status === 429 ? 'row-blocked' : (status >= 500 ? 'row-error' : '');
+        const pillClass = status === 503 ? 'status-503' : (status === 429 ? 'status-429' : (status >= 500 ? 'status-error' : (status >= 200 && status < 300 ? 'status-ok' : '')));
+        return `<tr class="${rowClass}"><td>${fmtTime(m.ts)}</td><td>${esc(m.method || '')} ${esc(m.path || '')}</td><td><span class="status-pill ${pillClass}">${status}</span></td><td>${fmtDuration(m.duration_ms)}</td><td>${fmtDuration(m.queue_ms)}</td><td>${esc(m.model || '')}</td><td>${esc(m.category || '')}</td></tr>`;
       }).join('');
     }
     async function runHealthTest() {

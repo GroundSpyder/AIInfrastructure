@@ -9,6 +9,8 @@ import time
 import urllib.error
 import urllib.request
 
+from server.tracker import tracker
+
 log = logging.getLogger(__name__)
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://kaydanskipc:11434").rstrip("/")
@@ -61,12 +63,16 @@ def status_payload() -> dict:
     available_names = {m.get("name") or m.get("model", "") for m in available if m.get("name") or m.get("model")}
     model_available = TEST_MODEL in available_names
 
+    t = tracker.status()
     return {
         "status": "up",
         "version": version,
         "model": {"id": TEST_MODEL, "available": model_available},
         "loaded": loaded,
         "available": available,
+        "current": t["current"],
+        "traffic": t["traffic"],
+        "performance": t["performance"],
         "ts": time.time(),
     }
 

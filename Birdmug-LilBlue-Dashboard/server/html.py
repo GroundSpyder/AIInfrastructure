@@ -20,6 +20,7 @@ INDEX_HTML: bytes = """<!doctype html>
     main::before { content:""; position:absolute; inset:8px; border-radius:10px; background:radial-gradient(circle at 20% 10%, rgba(26,159,255,.07), transparent 34%), radial-gradient(circle at 80% 20%, rgba(0,200,255,.06), transparent 30%), rgba(0,0,0,.06); opacity:.75; z-index:-1; pointer-events:none; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
+    .workgrid { display:grid; grid-template-columns: minmax(300px, 1.8fr) minmax(200px, .8fr); gap:16px; align-items:stretch; }
     .panel { background:linear-gradient(180deg, #0d1520, #060a10); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.50), inset 0 1px 0 rgba(77,184,255,.05); }
     .status-card { min-height:118px; overflow:hidden; }
     .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
@@ -36,23 +37,38 @@ INDEX_HTML: bytes = """<!doctype html>
     .check.fail { border-color:#ff3366; background:#180614; }
     .check .name { font-weight:700; }
     .check .detail { margin-top:4px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+
+    /* VRAM panel */
+    .vram-idle { display:flex; align-items:center; justify-content:center; min-height:120px; }
+    .vram-idle-text { font-size:18px; color:var(--muted); font-weight:600; letter-spacing:.02em; }
+    .vram-list { display:grid; gap:10px; margin-top:10px; }
+    .vram-card { border:1px solid #1a4060; background:linear-gradient(135deg, #04101e, #060c18); border-radius:8px; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+    .vram-card.loaded { border-color:#1a9fff; background:linear-gradient(135deg, #04101e, #071828); box-shadow:0 0 18px rgba(26,159,255,.12); }
+    .vram-model-name { font-size:18px; font-weight:700; color:#a8d8ff; }
+    .vram-model-meta { font-size:12px; color:var(--muted); margin-top:4px; }
+    .vram-badges { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .badge { border-radius:999px; padding:4px 12px; font-size:13px; font-weight:700; border:1px solid; }
+    .badge-vram { background:#071828; border-color:#1a6aaa; color:#4db8ff; font-size:15px; }
+    .badge-expiry { background:#0a1818; border-color:#006644; color:#00d9a0; }
+    .badge-expiry.expiring { background:#1a1000; border-color:#8a5000; color:#ffaa00; }
+    .badge-size { background:#060a14; border-color:#1a2a3a; color:#6a8aaa; }
+
+    /* Quick stats */
+    .stat-row { display:flex; justify-content:space-between; align-items:baseline; padding:7px 0; border-bottom:1px solid var(--line); }
+    .stat-row:last-child { border-bottom:none; }
+    .stat-label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    .stat-val { font-size:16px; font-weight:700; }
+
     table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
     .table-scroll { max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
     .table-scroll table { min-width:600px; }
     .table-scroll thead th { position:sticky; top:0; background:var(--panel); z-index:1; }
-    .loaded-panel { margin-top:10px; }
-    .loaded-empty { color:var(--muted); font-size:13px; padding:10px 0; }
-    .model-row { border:1px solid var(--line); background:#070c14; border-radius:6px; padding:10px 12px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
-    .model-row.active { border-color:#1a9fff; background:#04101e; }
-    .model-name { font-weight:700; font-size:14px; color:var(--blue); }
-    .model-meta { font-size:12px; color:var(--muted); }
-    .vram-pill { background:#0a1828; border:1px solid #1a4060; color:#4db8ff; font-size:12px; font-weight:700; border-radius:999px; padding:2px 9px; }
     .size-cell { white-space:nowrap; }
     @media (prefers-reduced-motion: reduce) { h1 { animation:none; } }
-    @media (max-width: 1000px) { .grid, .grid3, .checks { grid-template-columns:1fr 1fr; } }
-    @media (max-width: 600px) { .grid, .grid3, .checks { grid-template-columns:1fr; } }
+    @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr 1fr; } }
+    @media (max-width: 600px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
@@ -65,7 +81,7 @@ INDEX_HTML: bytes = """<!doctype html>
       <div class="panel status-card"><div class="label">Ollama</div><div class="value" id="status">...</div></div>
       <div class="panel status-card"><div class="label">Version</div><div class="value" id="version">...</div></div>
       <div class="panel status-card"><div class="label">Models Available</div><div class="value" id="availCount">...</div></div>
-      <div class="panel status-card"><div class="label">Models Loaded</div><div class="value" id="loadedCount">...</div></div>
+      <div class="panel status-card"><div class="label">Models in VRAM</div><div class="value" id="loadedCount">...</div></div>
     </section>
     <section class="panel">
       <div class="health-head">
@@ -78,14 +94,14 @@ INDEX_HTML: bytes = """<!doctype html>
       </div>
       <div id="healthChecks" class="checks"></div>
     </section>
-    <section class="grid3">
-      <div class="panel" style="grid-column:1/3">
-        <div class="label">Loaded Models (VRAM)</div>
-        <div id="loadedModels" class="loaded-panel"><div class="loaded-empty">No models currently loaded.</div></div>
+    <section class="workgrid">
+      <div class="panel">
+        <div class="label">Currently Loaded in VRAM</div>
+        <div id="vramModels"></div>
       </div>
       <div class="panel">
         <div class="label">Quick Stats</div>
-        <div id="quickStats" class="small" style="margin-top:10px">...</div>
+        <div id="quickStats" style="margin-top:10px"></div>
       </div>
     </section>
     <section class="panel">
@@ -102,12 +118,12 @@ INDEX_HTML: bytes = """<!doctype html>
       return b + ' B';
     }
     function fmtExpiry(ts) {
-      if (!ts) return '';
-      const d = new Date(ts);
-      const diff = Math.round((d - Date.now()) / 1000);
-      if (diff <= 0) return 'expired';
-      if (diff < 60) return diff + 's';
-      return Math.round(diff/60) + 'm';
+      if (!ts) return null;
+      const diff = Math.round((new Date(ts) - Date.now()) / 1000);
+      if (diff <= 0) return { label: 'expired', expiring: true };
+      if (diff < 60) return { label: diff + 's', expiring: true };
+      const mins = Math.round(diff / 60);
+      return { label: mins + 'm', expiring: mins < 5 };
     }
     async function refresh() {
       try {
@@ -119,30 +135,42 @@ INDEX_HTML: bytes = """<!doctype html>
       }
     }
     function renderStatus(s) {
-      document.getElementById('updated').textContent = 'Auto-refresh every 10s - Updated ' + new Date().toLocaleTimeString();
+      document.getElementById('updated').textContent = 'Auto-refresh every 10s — Updated ' + new Date().toLocaleTimeString();
       const up = s.status === 'up';
       document.getElementById('status').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
       document.getElementById('version').innerHTML = up ? `<span class="blue">${esc(s.version || '?')}</span>` : '<span class="bad">—</span>';
       const avail = (s.available || []).length;
       const loaded = (s.loaded || []).length;
       document.getElementById('availCount').innerHTML = `<span class="blue">${avail}</span>`;
-      document.getElementById('loadedCount').innerHTML = loaded > 0 ? `<span class="good">${loaded}</span>` : `<span class="muted">0</span>`;
-      renderLoaded(s.loaded || []);
+      document.getElementById('loadedCount').innerHTML = loaded > 0
+        ? `<span class="good">${loaded}</span>`
+        : `<span class="muted" style="color:var(--muted)">0</span>`;
+      renderVram(s.loaded || []);
       renderAvailable(s.available || []);
       renderQuickStats(s);
     }
-    function renderLoaded(models) {
-      const el = document.getElementById('loadedModels');
-      if (!models.length) { el.innerHTML = '<div class="loaded-empty">No models currently loaded in VRAM.</div>'; return; }
-      el.innerHTML = models.map(m => {
-        const vram = m.size_vram ? fmtBytes(m.size_vram) : '—';
-        const size = m.size ? fmtBytes(m.size) : '—';
-        const exp = m.expires_at ? fmtExpiry(m.expires_at) : '';
-        return `<div class="model-row active">
-          <div><div class="model-name">${esc(m.name || m.model || '?')}</div><div class="model-meta">Total: ${size}${exp ? ' · expires in ' + exp : ''}</div></div>
-          <div><span class="vram-pill">${vram} VRAM</span></div>
+    function renderVram(models) {
+      const el = document.getElementById('vramModels');
+      if (!models.length) {
+        el.innerHTML = '<div class="vram-idle"><span class="vram-idle-text">Idle — no models in VRAM</span></div>';
+        return;
+      }
+      el.innerHTML = '<div class="vram-list">' + models.map(m => {
+        const name = m.name || m.model || '?';
+        const vram = m.size_vram ? fmtBytes(m.size_vram) : null;
+        const size = m.size ? fmtBytes(m.size) : null;
+        const expiry = m.expires_at ? fmtExpiry(m.expires_at) : null;
+        const vramBadge = vram ? `<span class="badge badge-vram">${esc(vram)} VRAM</span>` : '';
+        const expiryBadge = expiry ? `<span class="badge badge-expiry${expiry.expiring ? ' expiring' : ''}">expires ${esc(expiry.label)}</span>` : '';
+        const sizeBadge = size ? `<span class="badge badge-size">${esc(size)} total</span>` : '';
+        return `<div class="vram-card loaded">
+          <div>
+            <div class="vram-model-name">${esc(name)}</div>
+            <div class="vram-model-meta">Loaded and ready</div>
+          </div>
+          <div class="vram-badges">${vramBadge}${expiryBadge}${sizeBadge}</div>
         </div>`;
-      }).join('');
+      }).join('') + '</div>';
     }
     function renderAvailable(models) {
       document.getElementById('modelTable').innerHTML = models.map(m => {
@@ -161,10 +189,16 @@ INDEX_HTML: bytes = """<!doctype html>
       const loaded = s.loaded || [];
       const totalSize = avail.reduce((a, m) => a + (m.size || 0), 0);
       const loadedVram = loaded.reduce((a, m) => a + (m.size_vram || 0), 0);
-      document.getElementById('quickStats').innerHTML =
-        `Installed: <span class="blue">${avail.length}</span> models<br>` +
-        `Total disk: <span class="blue">${fmtBytes(totalSize)}</span><br>` +
-        `VRAM in use: <span class="${loadedVram > 0 ? 'warn' : 'good'}">${loadedVram > 0 ? fmtBytes(loadedVram) : 'None'}</span>`;
+      document.getElementById('quickStats').innerHTML = [
+        { label: 'Installed', val: `<span class="blue">${avail.length}</span>` },
+        { label: 'Disk usage', val: `<span class="blue">${fmtBytes(totalSize)}</span>` },
+        { label: 'VRAM in use', val: loadedVram > 0
+            ? `<span class="warn">${fmtBytes(loadedVram)}</span>`
+            : `<span class="good">None</span>` },
+        { label: 'Active slots', val: loaded.length > 0
+            ? `<span class="good">${loaded.length}</span>`
+            : `<span class="muted" style="color:var(--muted)">0</span>` },
+      ].map(r => `<div class="stat-row"><span class="stat-label">${r.label}</span><span class="stat-val">${r.val}</span></div>`).join('');
     }
     async function runHealthTest() {
       const result = document.getElementById('healthResult');

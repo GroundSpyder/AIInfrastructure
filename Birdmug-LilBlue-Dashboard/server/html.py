@@ -1,4 +1,4 @@
-INDEX_HTML: bytes = b"""<!doctype html>
+INDEX_HTML: bytes = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -198,4 +198,4 @@ INDEX_HTML: bytes = b"""<!doctype html>
     setInterval(refresh, 10000);
   </script>
 </body>
-</html>"""
+</html>""".encode("utf-8")

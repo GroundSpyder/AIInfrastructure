@@ -13,4 +13,4 @@ EXPOSE 8792
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8792/health', timeout=3)"
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8792", "--workers", "2", "--timeout", "120", "server.app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8792", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--timeout", "360", "server.app:app"]

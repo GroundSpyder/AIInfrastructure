@@ -71,10 +71,10 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
   </header>
   <main>
     <section class="grid">
-      <div class="panel status-card"><div class="label">Ollama</div><div class="value" id="status">...</div></div>
+      <div class="panel status-card"><div class="label">LilBlue</div><div class="value" id="status">...</div></div>
+      <div class="panel status-card"><div class="label">Model</div><div class="value" id="model">...</div></div>
       <div class="panel status-card"><div class="label">Version</div><div class="value" id="version">...</div></div>
-      <div class="panel status-card"><div class="label">Models Available</div><div class="value" id="availCount">...</div></div>
-      <div class="panel status-card"><div class="label">Models in VRAM</div><div class="value" id="loadedCount">...</div></div>
+      <div class="panel status-card"><div class="label">VRAM</div><div class="value" id="vramStatus">...</div></div>
     </section>
     <section class="panel">
       <div class="health-head">
@@ -129,15 +129,16 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
     function renderStatus(s) {
       document.getElementById('updated').textContent = 'Auto-refresh every 10s — Updated ' + new Date().toLocaleTimeString();
       const up = s.status === 'up';
+      const loaded = s.loaded || [];
       document.getElementById('status').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
+      document.getElementById('model').innerHTML = up
+        ? `<span class="${s.model?.available ? 'good' : 'bad'}">${s.model?.available ? 'Available' : 'Unavailable'}</span><div class="small">${esc(s.model?.id || '?')}</div>`
+        : '<span class="bad">—</span>';
       document.getElementById('version').innerHTML = up ? `<span class="blue">${esc(s.version || '?')}</span>` : '<span class="bad">—</span>';
-      const avail = (s.available || []).length;
-      const loaded = (s.loaded || []).length;
-      document.getElementById('availCount').innerHTML = `<span class="blue">${avail}</span>`;
-      document.getElementById('loadedCount').innerHTML = loaded > 0
-        ? `<span class="good">${loaded}</span>`
-        : `<span class="muted" style="color:var(--muted)">0</span>`;
-      renderVram(s.loaded || []);
+      document.getElementById('vramStatus').innerHTML = loaded.length > 0
+        ? `<span class="warn">Active</span><div class="small">${loaded.length} model${loaded.length !== 1 ? 's' : ''} loaded</div>`
+        : `<span class="good">Idle</span>`;
+      renderVram(loaded);
       renderAvailable(s.available || []);
       renderGrid3(s);
     }

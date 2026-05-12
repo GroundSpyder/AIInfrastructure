@@ -58,9 +58,13 @@ def status_payload() -> dict:
         log.warning("LilBlue /api/tags failed: %s", exc)
         available = []
 
+    available_names = {m.get("name") or m.get("model", "") for m in available if m.get("name") or m.get("model")}
+    model_available = TEST_MODEL in available_names
+
     return {
         "status": "up",
         "version": version,
+        "model": {"id": TEST_MODEL, "available": model_available},
         "loaded": loaded,
         "available": available,
         "ts": time.time(),

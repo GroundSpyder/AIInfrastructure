@@ -12,8 +12,12 @@ def _fmt_generation(gen: dict | None) -> str:
         return ""
     t = gen.get("generated_tokens", 0)
     s = gen.get("seconds", 0)
-    tps = gen.get("generate_tps", 0)
     ctx = gen.get("context", 0)
+    if t == 0 and ctx > 0:
+        # Embedding: no generated tokens, report prompt throughput against context
+        ptps = gen.get("prompt_tps", 0)
+        return f"{ctx} tokens embedded in {s:.2f}s, {ptps:.1f} T/s"
+    tps = gen.get("generate_tps", 0)
     return f"{t} tokens in {s:.2f}s, {tps:.1f} T/s, context {ctx}"
 
 
@@ -69,28 +73,35 @@ class MetricsTracker:
     def __init__(self, maxlen: int = 200):
         self._lock = threading.Lock()
         self._metrics: deque[dict] = deque(maxlen=maxlen)
-        self._current: dict = {}
+        # _inflight: id() -> {method, path, model, started} for every concurrent
+        # request currently being proxied. gthread can run many at once, so a
+        # single shared "current" slot would race and clobber metadata.
+        self._inflight: dict[int, dict] = {}
         self._latest_perf: dict = {}
 
-    def start(self, method: str, path: str, model: str = "") -> None:
+    def start(self, method: str, path: str, model: str = "") -> int:
+        """Begin tracking a request. Returns a token to pass back to finish()."""
+        entry = {"method": method, "path": path, "model": model, "started": time.time()}
+        token = id(entry)
         with self._lock:
-            self._current = {"method": method, "path": path, "model": model, "started": time.time()}
+            self._inflight[token] = entry
+        return token
 
-    def finish(self, status: int, duration_ms: int, queue_ms: int = 0, model: str = "", generation: dict | None = None) -> None:
+    def finish(self, token: int, status: int, duration_ms: int, queue_ms: int = 0, model: str = "", generation: dict | None = None) -> None:
         with self._lock:
+            started = self._inflight.pop(token, {})
             entry = {
                 "ts": time.time(),
-                "method": self._current.get("method", ""),
-                "path": self._current.get("path", ""),
+                "method": started.get("method", ""),
+                "path": started.get("path", ""),
                 "status": status,
                 "duration_ms": duration_ms,
                 "queue_ms": queue_ms,
-                "model": model or self._current.get("model", ""),
+                "model": model or started.get("model", ""),
                 "generation": generation,
                 "category": _fmt_generation(generation),
             }
             self._metrics.appendleft(entry)
-            self._current = {}
             if generation and generation.get("generated_tokens", 0) > 0:
                 self._latest_perf = {
                     "generate_tps": generation.get("generate_tps", 0),
@@ -99,15 +110,30 @@ class MetricsTracker:
                 }
 
     def current(self) -> dict:
+        """Return the oldest in-flight request, or {} if idle. Dashboard shows one."""
         with self._lock:
-            return dict(self._current)
+            if not self._inflight:
+                return {}
+            return dict(min(self._inflight.values(), key=lambda e: e["started"]))
+
+    def gc_stale(self, max_age_seconds: float = 600) -> int:
+        """Drop _inflight entries older than max_age. Backstops leaked tokens
+        from client-disconnect mid-stream or any other path where finish()
+        never gets called. Returns count removed."""
+        cutoff = time.time() - max_age_seconds
+        with self._lock:
+            stale = [tok for tok, e in self._inflight.items() if e["started"] < cutoff]
+            for tok in stale:
+                self._inflight.pop(tok, None)
+            return len(stale)
 
     def status(self) -> dict:
+        self.gc_stale()
         with self._lock:
             now = time.time()
             metrics = list(self._metrics)
             latest = dict(self._latest_perf)
-            current = dict(self._current)
+            current = dict(min(self._inflight.values(), key=lambda e: e["started"])) if self._inflight else {}
         return {
             "current": current,
             "traffic": {

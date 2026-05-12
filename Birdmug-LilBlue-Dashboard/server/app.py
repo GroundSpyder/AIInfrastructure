@@ -81,7 +81,7 @@ def proxy_chat():
     model = req_data.get("model", "")
     is_stream = req_data.get("stream", False)
 
-    tracker.start("POST", "/v1/chat/completions", model)
+    token = tracker.start("POST", "/v1/chat/completions", model)
 
     fwd = urllib.request.Request(
         f"{OLLAMA_URL}/v1/chat/completions",
@@ -96,15 +96,21 @@ def proxy_chat():
             status_code = resp.status
             if is_stream:
                 def _stream(response=resp):
+                    final_status = status_code
                     try:
                         while True:
-                            chunk = response.read(4096)
+                            try:
+                                chunk = response.read(4096)
+                            except Exception as exc:
+                                final_status = 502
+                                _fairy.capture_exception(exc)
+                                break
                             if not chunk:
                                 break
                             yield chunk
                     finally:
                         duration_ms = int((time.time() - started) * 1000)
-                        tracker.finish(status_code, duration_ms, model=model)
+                        tracker.finish(token, final_status, duration_ms, model=model)
                 return app.response_class(
                     _stream(), status=status_code,
                     content_type=resp.headers.get("Content-Type", "text/event-stream"),
@@ -114,16 +120,16 @@ def proxy_chat():
                 data = resp.read()
                 duration_ms = int((time.time() - started) * 1000)
                 generation = _parse_generation(data, duration_ms)
-                tracker.finish(status_code, duration_ms, model=model, generation=generation)
+                tracker.finish(token, status_code, duration_ms, model=model, generation=generation)
                 return app.response_class(data, status=status_code, content_type="application/json")
     except urllib.error.HTTPError as exc:
         duration_ms = int((time.time() - started) * 1000)
         err_body = exc.read()
-        tracker.finish(exc.code, duration_ms, model=model)
+        tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
-        tracker.finish(500, duration_ms, model=model)
+        tracker.finish(token, 500, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": str(exc)}), 500
 
@@ -157,7 +163,7 @@ def proxy_ollama_generate():
     # Ollama defaults stream=true; respect what the client sends
     is_stream = req_data.get("stream", True)
 
-    tracker.start("POST", path, model)
+    token = tracker.start("POST", path, model)
 
     fwd = urllib.request.Request(f"{OLLAMA_URL}{path}", data=body, method="POST")
     fwd.add_header("Content-Type", "application/json")
@@ -168,15 +174,21 @@ def proxy_ollama_generate():
             status_code = resp.status
             if is_stream:
                 def _stream(response=resp):
+                    final_status = status_code
                     try:
                         while True:
-                            chunk = response.read(4096)
+                            try:
+                                chunk = response.read(4096)
+                            except Exception as exc:
+                                final_status = 502
+                                _fairy.capture_exception(exc)
+                                break
                             if not chunk:
                                 break
                             yield chunk
                     finally:
                         duration_ms = int((time.time() - started) * 1000)
-                        tracker.finish(status_code, duration_ms, model=model)
+                        tracker.finish(token, final_status, duration_ms, model=model)
                 return app.response_class(
                     _stream(), status=status_code,
                     content_type=resp.headers.get("Content-Type", "application/x-ndjson"),
@@ -186,16 +198,16 @@ def proxy_ollama_generate():
                 data = resp.read()
                 duration_ms = int((time.time() - started) * 1000)
                 generation = _parse_generation_native(data, duration_ms)
-                tracker.finish(status_code, duration_ms, model=model, generation=generation)
+                tracker.finish(token, status_code, duration_ms, model=model, generation=generation)
                 return app.response_class(data, status=status_code, content_type="application/json")
     except urllib.error.HTTPError as exc:
         duration_ms = int((time.time() - started) * 1000)
         err_body = exc.read()
-        tracker.finish(exc.code, duration_ms, model=model)
+        tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
-        tracker.finish(500, duration_ms, model=model)
+        tracker.finish(token, 500, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": str(exc)}), 500
 
@@ -214,7 +226,7 @@ def proxy_ollama_embed():
         logging.getLogger(__name__).warning("proxy_ollama_embed: failed to parse JSON body (%d bytes)", len(body))
     model = req_data.get("model", "")
 
-    tracker.start("POST", path, model)
+    token = tracker.start("POST", path, model)
 
     fwd = urllib.request.Request(f"{OLLAMA_URL}{path}", data=body, method="POST")
     fwd.add_header("Content-Type", "application/json")
@@ -226,16 +238,16 @@ def proxy_ollama_embed():
             data = resp.read()
             duration_ms = int((time.time() - started) * 1000)
             generation = _parse_embed_stats(data, duration_ms)
-            tracker.finish(status_code, duration_ms, model=model, generation=generation)
+            tracker.finish(token, status_code, duration_ms, model=model, generation=generation)
             return app.response_class(data, status=status_code, content_type="application/json")
     except urllib.error.HTTPError as exc:
         duration_ms = int((time.time() - started) * 1000)
         err_body = exc.read()
-        tracker.finish(exc.code, duration_ms, model=model)
+        tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
-        tracker.finish(500, duration_ms, model=model)
+        tracker.finish(token, 500, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": str(exc)}), 500
 

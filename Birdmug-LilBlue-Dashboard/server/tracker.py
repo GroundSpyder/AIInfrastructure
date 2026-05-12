@@ -91,7 +91,7 @@ class MetricsTracker:
             }
             self._metrics.appendleft(entry)
             self._current = {}
-            if generation:
+            if generation and generation.get("generated_tokens", 0) > 0:
                 self._latest_perf = {
                     "generate_tps": generation.get("generate_tps", 0),
                     "prompt_tps": generation.get("prompt_tps", 0),

@@ -141,9 +141,158 @@ def proxy_models():
         return jsonify({"error": str(exc)}), 503
 
 
+@app.route("/api/generate", methods=["POST"])
+@app.route("/api/chat", methods=["POST"])
+def proxy_ollama_generate():
+    path = request.path
+    started = time.time()
+    body = request.get_data()
+    try:
+        req_data = json.loads(body) if body else {}
+    except Exception:
+        req_data = {}
+    if not req_data and body:
+        logging.getLogger(__name__).warning("proxy_ollama_generate: failed to parse JSON body (%d bytes)", len(body))
+    model = req_data.get("model", "")
+    # Ollama defaults stream=true; respect what the client sends
+    is_stream = req_data.get("stream", True)
+
+    tracker.start("POST", path, model)
+
+    fwd = urllib.request.Request(f"{OLLAMA_URL}{path}", data=body, method="POST")
+    fwd.add_header("Content-Type", "application/json")
+    fwd.add_header("Accept", "application/json")
+
+    try:
+        with urllib.request.urlopen(fwd, timeout=300) as resp:
+            status_code = resp.status
+            if is_stream:
+                def _stream(response=resp):
+                    try:
+                        while True:
+                            chunk = response.read(4096)
+                            if not chunk:
+                                break
+                            yield chunk
+                    finally:
+                        duration_ms = int((time.time() - started) * 1000)
+                        tracker.finish(status_code, duration_ms, model=model)
+                return app.response_class(
+                    _stream(), status=status_code,
+                    content_type=resp.headers.get("Content-Type", "application/x-ndjson"),
+                    direct_passthrough=True,
+                )
+            else:
+                data = resp.read()
+                duration_ms = int((time.time() - started) * 1000)
+                generation = _parse_generation_native(data, duration_ms)
+                tracker.finish(status_code, duration_ms, model=model, generation=generation)
+                return app.response_class(data, status=status_code, content_type="application/json")
+    except urllib.error.HTTPError as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        err_body = exc.read()
+        tracker.finish(exc.code, duration_ms, model=model)
+        return app.response_class(err_body, status=exc.code, content_type="application/json")
+    except Exception as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(500, duration_ms, model=model)
+        _fairy.capture_exception(exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/embed", methods=["POST"])
+@app.route("/api/embeddings", methods=["POST"])
+def proxy_ollama_embed():
+    path = request.path
+    started = time.time()
+    body = request.get_data()
+    try:
+        req_data = json.loads(body) if body else {}
+    except Exception:
+        req_data = {}
+    if not req_data and body:
+        logging.getLogger(__name__).warning("proxy_ollama_embed: failed to parse JSON body (%d bytes)", len(body))
+    model = req_data.get("model", "")
+
+    tracker.start("POST", path, model)
+
+    fwd = urllib.request.Request(f"{OLLAMA_URL}{path}", data=body, method="POST")
+    fwd.add_header("Content-Type", "application/json")
+    fwd.add_header("Accept", "application/json")
+
+    try:
+        with urllib.request.urlopen(fwd, timeout=120) as resp:
+            status_code = resp.status
+            data = resp.read()
+            duration_ms = int((time.time() - started) * 1000)
+            generation = _parse_embed_stats(data, duration_ms)
+            tracker.finish(status_code, duration_ms, model=model, generation=generation)
+            return app.response_class(data, status=status_code, content_type="application/json")
+    except urllib.error.HTTPError as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        err_body = exc.read()
+        tracker.finish(exc.code, duration_ms, model=model)
+        return app.response_class(err_body, status=exc.code, content_type="application/json")
+    except Exception as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(500, duration_ms, model=model)
+        _fairy.capture_exception(exc)
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"}), 200
+
+
+def _parse_generation_native(data: bytes, duration_ms: int) -> dict | None:
+    """Parse token metrics from Ollama native /api/generate or /api/chat response."""
+    try:
+        parsed = json.loads(data)
+        eval_count = parsed.get("eval_count", 0)
+        prompt_eval_count = parsed.get("prompt_eval_count", 0)
+        if not eval_count:
+            return None
+        seconds = duration_ms / 1000
+        eval_dur_ns = parsed.get("eval_duration", 0)
+        gen_seconds = eval_dur_ns / 1e9 if eval_dur_ns else seconds
+        gen_tps = round(eval_count / gen_seconds, 2) if gen_seconds > 0 else 0
+        prompt_dur_ns = parsed.get("prompt_eval_duration", 0)
+        if prompt_dur_ns and prompt_eval_count:
+            prompt_tps = round(prompt_eval_count / (prompt_dur_ns / 1e9), 2)
+        else:
+            prompt_tps = 0
+        return {
+            "generated_tokens": eval_count,
+            "seconds": round(seconds, 2),
+            "generate_tps": gen_tps,
+            "prompt_tps": prompt_tps,
+            "context": prompt_eval_count + eval_count,
+        }
+    except Exception as exc:
+        logging.getLogger(__name__).warning("_parse_generation_native failed: %s", exc)
+        return None
+
+
+def _parse_embed_stats(data: bytes, duration_ms: int) -> dict | None:
+    """Extract prompt token count from Ollama embed response for traffic display."""
+    try:
+        parsed = json.loads(data)
+        prompt_tokens = parsed.get("prompt_eval_count", 0)
+        if not prompt_tokens:
+            return None
+        seconds = duration_ms / 1000
+        tps = round(prompt_tokens / seconds, 2) if seconds > 0 else 0
+        return {
+            "generated_tokens": 0,
+            "seconds": round(seconds, 2),
+            "generate_tps": 0,
+            "prompt_tps": tps,
+            "context": prompt_tokens,
+        }
+    except Exception as exc:
+        logging.getLogger(__name__).warning("_parse_embed_stats failed: %s", exc)
+        return None
 
 
 def _parse_generation(data: bytes, duration_ms: int) -> dict | None:

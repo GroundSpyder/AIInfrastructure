@@ -6,7 +6,7 @@ services:
     container_name: lilblue_dashboard
     restart: on-failure:3
     ports:
-      - "127.0.0.1:8792:8792"
+      - "0.0.0.0:8792:8792"
     environment:
       OLLAMA_URL: ${OLLAMA_URL:-http://kaydanskipc:11434}
       LILBLUE_TEST_MODEL: ${LILBLUE_TEST_MODEL:-qwen2.5:7b}

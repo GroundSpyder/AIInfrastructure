@@ -4,7 +4,7 @@ import logging
 import os
 import time
 
-from flask import Flask, jsonify, make_response
+from flask import Flask, jsonify, make_response, send_file
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from server.auth import require_auth
@@ -35,6 +35,11 @@ def index():
     resp.content_type = "text/html; charset=utf-8"
     resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+@app.route("/lilblue.png")
+def favicon():
+    return send_file("/app/lilblue.png", mimetype="image/png")
 
 
 @app.route("/api/status")

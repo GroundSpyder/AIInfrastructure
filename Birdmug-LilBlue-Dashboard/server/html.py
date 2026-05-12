@@ -4,12 +4,15 @@ INDEX_HTML: bytes = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LilBlue Dashboard</title>
+  <link rel="icon" href="/lilblue.png" sizes="any">
+  <link rel="shortcut icon" href="/lilblue.png">
   <style>
     :root { color-scheme: dark; --bg:#010608; --panel:#080d14; --panel2:#0d1520; --line:#1a2a3a; --text:#ddeeff; --muted:#6a8aaa; --good:#00d9a0; --bad:#ff3366; --warn:#ffaa00; --blue:#4db8ff; --lilblue:#1a9fff; --ash:#0b1420; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(26, 159, 255, .18), transparent 32%), radial-gradient(circle at 82% -4%, rgba(0, 200, 255, .12), transparent 28%), linear-gradient(180deg, #040810, #010305 48%, #000); color:var(--text); }
     header { padding:18px 22px; border-bottom:1px solid #1a3050; display:flex; align-items:center; justify-content:space-between; gap:16px; background:linear-gradient(90deg, rgba(1, 4, 10, .98), rgba(8, 18, 32, .94) 55%, rgba(2, 18, 40, .72)); box-shadow:0 10px 30px rgba(0,0,0,.60), inset 0 -1px 0 rgba(26, 159, 255, .20); }
     .brand { display:flex; align-items:center; gap:10px; min-width:0; }
+    .brand-icon { width:32px; height:32px; flex:0 0 auto; border-radius:50%; }
     h1 { margin:0; font-size:22px; font-weight:700; color:#a8d8ff; text-shadow:0 0 6px rgba(77, 184, 255, .55), 0 0 18px rgba(26, 159, 255, .38), 0 0 36px rgba(0, 160, 255, .20); animation:lilblue-pulse 5s infinite alternate ease-in-out; }
     @keyframes lilblue-pulse {
       0%   { color:#9dd0ff; text-shadow:0 0 5px rgba(77,184,255,.45), 0 0 15px rgba(26,159,255,.30), 0 0 30px rgba(0,140,255,.16); }
@@ -20,7 +23,8 @@ INDEX_HTML: bytes = """<!doctype html>
     main::before { content:""; position:absolute; inset:8px; border-radius:10px; background:radial-gradient(circle at 20% 10%, rgba(26,159,255,.07), transparent 34%), radial-gradient(circle at 80% 20%, rgba(0,200,255,.06), transparent 30%), rgba(0,0,0,.06); opacity:.75; z-index:-1; pointer-events:none; }
     .grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:12px; }
     .grid3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; }
-.panel { background:linear-gradient(180deg, #0d1520, #060a10); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.50), inset 0 1px 0 rgba(77,184,255,.05); }
+    .workgrid { display:grid; grid-template-columns: minmax(260px, .9fr) minmax(520px, 1.6fr); gap:16px; align-items:stretch; }
+    .panel { background:linear-gradient(180deg, #0d1520, #060a10); border:1px solid var(--line); border-radius:8px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,.50), inset 0 1px 0 rgba(77,184,255,.05); }
     .status-card { min-height:118px; overflow:hidden; }
     .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
     .value { font-size:22px; margin-top:8px; line-height:1.22; overflow-wrap:anywhere; }
@@ -52,7 +56,11 @@ INDEX_HTML: bytes = """<!doctype html>
     .badge-expiry.expiring { background:#1a1000; border-color:#8a5000; color:#ffaa00; }
     .badge-size { background:#060a14; border-color:#1a2a3a; color:#6a8aaa; }
 
-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .counter-grid { display:grid; grid-template-columns: repeat(3, minmax(80px, 1fr)); gap:8px; margin-top:10px; }
+    .counter-card { border:1px solid var(--line); background:#070c14; border-radius:6px; padding:9px; min-height:64px; }
+    .counter-card .num { font-size:22px; font-weight:700; margin-top:4px; }
+    .counter-card .name { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
     th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
     th { color:var(--muted); font-weight:600; }
     .table-scroll { max-height:360px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:10px; }
@@ -66,7 +74,7 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
 </head>
 <body>
   <header>
-    <h1>LilBlue Dashboard</h1>
+    <div class="brand"><img class="brand-icon" src="/lilblue.png" alt="LilBlue"><h1>LilBlue Dashboard</h1></div>
     <div class="small" id="updated">Loading...</div>
   </header>
   <main>
@@ -87,9 +95,15 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
       </div>
       <div id="healthChecks" class="checks"></div>
     </section>
-    <section class="panel">
-      <div class="label">Currently Loaded in VRAM</div>
-      <div id="vramModels"></div>
+    <section class="workgrid">
+      <div class="panel">
+        <div class="label">Currently Loaded in VRAM</div>
+        <div id="vramModels"></div>
+      </div>
+      <div class="panel">
+        <div class="label">Model Library</div>
+        <div id="libraryCounters" class="counter-grid"></div>
+      </div>
     </section>
     <section class="grid3">
       <div class="panel"><div class="label">Installed Models</div><div class="value" id="statInstalled">...</div></div>
@@ -140,6 +154,7 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
         : `<span class="good">Idle</span>`;
       renderVram(loaded);
       renderAvailable(s.available || []);
+      renderLibrary(s.available || []);
       renderGrid3(s);
     }
     function renderVram(models) {
@@ -176,6 +191,20 @@ table { width:100%; border-collapse:collapse; font-size:13px; }
           <td class="size-cell">${fmtBytes(m.size)}</td>
         </tr>`;
       }).join('');
+    }
+    function counterCard(name, value, klass='') {
+      return `<div class="counter-card"><div class="name">${name}</div><div class="num ${klass}">${value}</div></div>`;
+    }
+    function renderLibrary(models) {
+      const families = {};
+      for (const m of models) {
+        const fam = (m.details?.family || 'other').toLowerCase();
+        families[fam] = (families[fam] || 0) + 1;
+      }
+      const topFamilies = Object.entries(families).sort((a,b) => b[1]-a[1]).slice(0,3);
+      const cards = topFamilies.map(([fam, cnt]) => counterCard(fam, cnt, 'blue'));
+      while (cards.length < 3) cards.push(counterCard('—', '—'));
+      document.getElementById('libraryCounters').innerHTML = cards.join('');
     }
     function renderGrid3(s) {
       const avail = s.available || [];

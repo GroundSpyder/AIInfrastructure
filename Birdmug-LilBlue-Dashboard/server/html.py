@@ -160,7 +160,7 @@ INDEX_HTML: bytes = """<!doctype html>
       } catch(e) {
         document.getElementById('updated').textContent = 'Refresh failed - ' + new Date().toLocaleTimeString();
         document.getElementById('overall').innerHTML = '<span class="bad">Down</span>';
-        showAlert('down', 'Dashboard cannot reach LilBlue', 'The /api/status endpoint did not respond. The dashboard itself may be restarting, or your network connection dropped.\n' + String(e));
+        showAlert('down', 'Dashboard cannot reach LilBlue', 'The /api/status endpoint did not respond. The dashboard itself may be restarting, or your network connection dropped. ' + String(e));
       }
     }
     function renderStatus(s) {
@@ -176,7 +176,7 @@ INDEX_HTML: bytes = """<!doctype html>
         const title = looksLikeTimeout
           ? 'Ollama upstream unreachable (Kaydanski may be offline)'
           : 'LilBlue reports Ollama is down';
-        showAlert('down', title, 'Error from upstream: ' + err + '\nThe proxy and dashboard are running; traffic will resume once the inference host is reachable again.');
+        showAlert('down', title, 'Error from upstream: ' + err + ' — The proxy and dashboard are running; traffic will resume once the inference host is reachable again.');
       }
       document.getElementById('model').innerHTML = up
         ? `<span class="${s.model?.available ? 'good' : 'bad'}">${s.model?.available ? 'Available' : 'Unavailable'}</span><div class="small">${esc(s.model?.id || '?')}</div>`

@@ -62,6 +62,14 @@ INDEX_HTML: bytes = """<!doctype html>
     .status-error { background:#1a1000; color:#ffe2a8; border-color:#ffaa00; }
     tr.row-blocked td { background:rgba(255,51,102,.10); color:#ffd5c8; }
     tr.row-error td { background:rgba(255,170,0,.10); color:#ffe2a8; }
+    .alert { display:none; border-radius:8px; padding:12px 14px; border:1px solid; gap:12px; align-items:flex-start; box-shadow:0 8px 24px rgba(0,0,0,.50); }
+    .alert.show { display:flex; }
+    .alert-down { background:linear-gradient(180deg, #1a0612, #0d0408); border-color:#ff3366; color:#ffd5c8; }
+    .alert-warn { background:linear-gradient(180deg, #1a1000, #0d0800); border-color:#ffaa00; color:#ffe2a8; }
+    .alert-icon { font-size:22px; line-height:1; flex:0 0 auto; }
+    .alert-body { flex:1; min-width:0; }
+    .alert-title { font-weight:700; font-size:15px; margin-bottom:3px; }
+    .alert-detail { font-size:13px; opacity:.92; overflow-wrap:anywhere; }
     code { color:#4db8ff; }
     @media (prefers-reduced-motion: reduce) { h1, main::before { animation:none; } }
     @media (max-width: 1000px) { .grid, .grid3, .workgrid, .checks { grid-template-columns:1fr; } .counter-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
@@ -73,6 +81,13 @@ INDEX_HTML: bytes = """<!doctype html>
     <div class="small" id="updated">Loading...</div>
   </header>
   <main>
+    <div id="alert" class="alert">
+      <div class="alert-icon" id="alertIcon">!</div>
+      <div class="alert-body">
+        <div class="alert-title" id="alertTitle"></div>
+        <div class="alert-detail" id="alertDetail"></div>
+      </div>
+    </div>
     <section class="grid">
       <div class="panel status-card"><div class="label">LilBlue</div><div class="value" id="overall">...</div></div>
       <div class="panel status-card"><div class="label">Model</div><div class="value" id="model">...</div></div>
@@ -127,13 +142,25 @@ INDEX_HTML: bytes = """<!doctype html>
       const minutes = Math.floor(seconds / 60);
       return minutes ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
     }
+    function showAlert(kind, title, detail) {
+      const a = document.getElementById('alert');
+      a.className = 'alert show alert-' + kind;
+      document.getElementById('alertIcon').textContent = kind === 'down' ? '✖' : '⚠';
+      document.getElementById('alertTitle').textContent = title;
+      document.getElementById('alertDetail').textContent = detail || '';
+    }
+    function hideAlert() {
+      document.getElementById('alert').className = 'alert';
+    }
     async function refresh() {
       try {
-        const s = await (await fetch('/api/status')).json();
+        const r = await fetch('/api/status');
+        const s = await r.json();
         renderStatus(s);
       } catch(e) {
         document.getElementById('updated').textContent = 'Refresh failed - ' + new Date().toLocaleTimeString();
         document.getElementById('overall').innerHTML = '<span class="bad">Down</span>';
+        showAlert('down', 'Dashboard cannot reach LilBlue', 'The /api/status endpoint did not respond. The dashboard itself may be restarting, or your network connection dropped.\n' + String(e));
       }
     }
     function renderStatus(s) {
@@ -141,6 +168,16 @@ INDEX_HTML: bytes = """<!doctype html>
       const loaded = s.loaded || [];
       document.getElementById('updated').textContent = 'Auto-refresh every 10s - Updated ' + new Date().toLocaleTimeString();
       document.getElementById('overall').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
+      if (up) {
+        hideAlert();
+      } else {
+        const err = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : 'No error detail returned.';
+        const looksLikeTimeout = /timed out|timeout|refused|unreachable|econnrefused|enetunreach|no route to host/i.test(err);
+        const title = looksLikeTimeout
+          ? 'Ollama upstream unreachable (Kaydanski may be offline)'
+          : 'LilBlue reports Ollama is down';
+        showAlert('down', title, 'Error from upstream: ' + err + '\nThe proxy and dashboard are running; traffic will resume once the inference host is reachable again.');
+      }
       document.getElementById('model').innerHTML = up
         ? `<span class="${s.model?.available ? 'good' : 'bad'}">${s.model?.available ? 'Available' : 'Unavailable'}</span><div class="small">${esc(s.model?.id || '?')}</div>`
         : '<span class="bad">-</span>';

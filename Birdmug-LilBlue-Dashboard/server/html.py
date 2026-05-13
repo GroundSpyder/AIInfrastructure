@@ -213,21 +213,49 @@ INDEX_HTML: bytes = """<!doctype html>
     }
     function renderPerf(p) {
       const latest = p.latest || {};
+      const latestEmbed = p.latest_embed || {};
       const gen = latest.generate_tps || 0;
       const prompt = latest.prompt_tps || 0;
-      document.getElementById('speedNow').innerHTML = latest.generated_tokens
-        ? `<span class="good">${Number(gen).toFixed(1)}</span> gen t/s<br><span class="blue">${Number(prompt).toFixed(0)}</span> prompt t/s`
-        : '<span class="warn">No recent generation</span>';
-      document.getElementById('speedMeter').style.width = `${Math.min(100, gen / 80 * 100)}%`;
+      const embedTps = latestEmbed.embed_tps || 0;
+      // Prefer the more recent of generation vs embed (timestamps stamped server-side).
+      const genTs = latest.ts || 0;
+      const embedTs = latestEmbed.ts || 0;
+      let speedHtml;
+      if (latest.generated_tokens && genTs >= embedTs) {
+        speedHtml = `<span class="good">${Number(gen).toFixed(1)}</span> gen t/s<br><span class="blue">${Number(prompt).toFixed(0)}</span> prompt t/s`;
+      } else if (latestEmbed.embed_tokens) {
+        speedHtml = `<span class="blue">${Number(embedTps).toFixed(1)}</span> embed t/s<br><span class="small">${Number(latestEmbed.embed_tokens).toLocaleString()} tokens last batch</span>`;
+      } else if (latest.generated_tokens) {
+        speedHtml = `<span class="good">${Number(gen).toFixed(1)}</span> gen t/s<br><span class="blue">${Number(prompt).toFixed(0)}</span> prompt t/s`;
+      } else {
+        speedHtml = '<span class="warn">No recent activity</span>';
+      }
+      document.getElementById('speedNow').innerHTML = speedHtml;
+      const meterPct = gen > 0 ? gen / 80 * 100 : (embedTps > 0 ? Math.min(100, embedTps / 800 * 100) : 0);
+      document.getElementById('speedMeter').style.width = `${Math.min(100, meterPct)}%`;
       const w = p.windows || {};
+      const tokenLine = (win) => {
+        const g = win?.gen_tokens || 0;
+        const e = win?.embed_tokens || 0;
+        if (!g && !e) return '<span class="blue">0</span>';
+        const parts = [];
+        if (g) parts.push(`<span class="good">${g.toLocaleString()}</span> gen`);
+        if (e) parts.push(`<span class="blue">${e.toLocaleString()}</span> embed`);
+        return parts.join(' / ');
+      };
       document.getElementById('tokensWindow').innerHTML =
-        `1h: <span class="blue">${(w['1h']?.tokens || 0).toLocaleString()}</span><br>` +
-        `12h: <span class="blue">${(w['12h']?.tokens || 0).toLocaleString()}</span><br>` +
-        `24h: <span class="blue">${(w['24h']?.tokens || 0).toLocaleString()}</span>`;
+        `1h: ${tokenLine(w['1h'])}<br>` +
+        `12h: ${tokenLine(w['12h'])}<br>` +
+        `24h: ${tokenLine(w['24h'])}`;
+      const w1 = w['1h'] || {};
+      const speedParts = [];
+      if (w1.avg_generate_tps) speedParts.push(`gen ${w1.avg_generate_tps.toFixed(1)} t/s`);
+      if (w1.avg_embed_tps) speedParts.push(`embed ${w1.avg_embed_tps.toFixed(1)} t/s`);
+      const speedLine = speedParts.length ? speedParts.join(', ') : '0 t/s';
       document.getElementById('workload').innerHTML =
-        `1h: ${w['1h']?.requests || 0} req<br>` +
-        `avg gen: ${(w['1h']?.avg_generate_tps || 0).toFixed(1)} t/s<br>` +
-        `max ctx: ${(w['1h']?.max_context || 0).toLocaleString()}`;
+        `1h: ${w1.requests || 0} req<br>` +
+        `${speedLine}<br>` +
+        `max ctx: ${(w1.max_context || 0).toLocaleString()}`;
     }
     function renderMetrics(metrics) {
       document.getElementById('metrics').innerHTML = metrics.slice(0, 40).map(m => {

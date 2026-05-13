@@ -42,29 +42,44 @@ def _count_window(metrics: list[dict], since: float) -> dict:
 
 
 def _perf_window(metrics: list[dict], since: float) -> dict:
-    tokens = 0
+    gen_tokens = 0
+    embed_tokens = 0
     reqs = 0
-    tps_sum = 0.0
-    tps_count = 0
+    gen_tps_sum = 0.0
+    gen_tps_count = 0
+    embed_tps_sum = 0.0
+    embed_tps_count = 0
     max_ctx = 0
     for m in metrics:
         if m["ts"] < since:
             break
         reqs += 1
         gen = m.get("generation")
-        if gen:
-            tokens += gen.get("generated_tokens", 0)
+        if not gen:
+            continue
+        g = gen.get("generated_tokens", 0)
+        ctx = gen.get("context", 0)
+        if g > 0:
+            gen_tokens += g
             tps = gen.get("generate_tps", 0)
             if tps:
-                tps_sum += tps
-                tps_count += 1
-            ctx = gen.get("context", 0)
-            if ctx > max_ctx:
-                max_ctx = ctx
+                gen_tps_sum += tps
+                gen_tps_count += 1
+        elif ctx > 0:
+            embed_tokens += ctx
+            tps = gen.get("prompt_tps", 0)
+            if tps:
+                embed_tps_sum += tps
+                embed_tps_count += 1
+        if ctx > max_ctx:
+            max_ctx = ctx
     return {
-        "tokens": tokens,
+        "tokens": gen_tokens + embed_tokens,
+        "gen_tokens": gen_tokens,
+        "embed_tokens": embed_tokens,
         "requests": reqs,
-        "avg_generate_tps": round(tps_sum / tps_count, 1) if tps_count else 0,
+        "avg_generate_tps": round(gen_tps_sum / gen_tps_count, 1) if gen_tps_count else 0,
+        "avg_embed_tps": round(embed_tps_sum / embed_tps_count, 1) if embed_tps_count else 0,
         "max_context": max_ctx,
     }
 
@@ -78,6 +93,7 @@ class MetricsTracker:
         # single shared "current" slot would race and clobber metadata.
         self._inflight: dict[int, dict] = {}
         self._latest_perf: dict = {}
+        self._latest_embed_perf: dict = {}
 
     def start(self, method: str, path: str, model: str = "") -> int:
         """Begin tracking a request. Returns a token to pass back to finish()."""
@@ -102,12 +118,23 @@ class MetricsTracker:
                 "category": _fmt_generation(generation),
             }
             self._metrics.appendleft(entry)
-            if generation and generation.get("generated_tokens", 0) > 0:
-                self._latest_perf = {
-                    "generate_tps": generation.get("generate_tps", 0),
-                    "prompt_tps": generation.get("prompt_tps", 0),
-                    "generated_tokens": generation.get("generated_tokens", 0),
-                }
+            if generation:
+                g = generation.get("generated_tokens", 0)
+                ctx = generation.get("context", 0)
+                now = time.time()
+                if g > 0:
+                    self._latest_perf = {
+                        "generate_tps": generation.get("generate_tps", 0),
+                        "prompt_tps": generation.get("prompt_tps", 0),
+                        "generated_tokens": g,
+                        "ts": now,
+                    }
+                elif ctx > 0:
+                    self._latest_embed_perf = {
+                        "embed_tps": generation.get("prompt_tps", 0),
+                        "embed_tokens": ctx,
+                        "ts": now,
+                    }
 
     def current(self) -> dict:
         """Return the oldest in-flight request, or {} if idle. Dashboard shows one."""
@@ -133,6 +160,7 @@ class MetricsTracker:
             now = time.time()
             metrics = list(self._metrics)
             latest = dict(self._latest_perf)
+            latest_embed = dict(self._latest_embed_perf)
             current = dict(min(self._inflight.values(), key=lambda e: e["started"])) if self._inflight else {}
         return {
             "current": current,
@@ -145,6 +173,7 @@ class MetricsTracker:
             },
             "performance": {
                 "latest": latest,
+                "latest_embed": latest_embed,
                 "windows": {
                     "1h": _perf_window(metrics, now - 3600),
                     "12h": _perf_window(metrics, now - 43200),

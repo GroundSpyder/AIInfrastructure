@@ -10,9 +10,14 @@ services:
     environment:
       OLLAMA_URL: ${OLLAMA_URL:-http://kaydanskipc:11434}
       LILBLUE_TEST_MODEL: ${LILBLUE_TEST_MODEL:-qwen2.5:7b}
-      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET}
+      # ${VAR:?msg} makes compose REFUSE to start if VAR is unset or empty.
+      # Prevents the silent login-loop failure mode where `docker compose up -d`
+      # without `doppler run` substitutes "" into the container env and breaks
+      # every JWT validation. Run via ~/deploy.sh or wrap with
+      # `doppler run --project birdmug-services --config prd -- docker compose ...`.
+      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET:?BIRDMUG_JWT_SECRET must be injected — use ~/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
       BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
-      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY}
+      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY:?BUG_FAIRY_API_KEY must be injected — use ~/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
     networks:
       - lilblue_net
     deploy:

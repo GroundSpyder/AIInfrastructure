@@ -45,9 +45,6 @@ services:
         limits:
           cpus: "0.10"
           memory: 64M
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2000/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # Cloudflared uses a distroless image (no sh/curl/wget), so a CMD-shell
+    # healthcheck can't run. The cloudflared process self-monitors via its
+    # own reconnect logic; restart: on-failure handles a crashed binary.

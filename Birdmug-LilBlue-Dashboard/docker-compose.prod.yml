@@ -8,8 +8,16 @@ services:
     ports:
       - "0.0.0.0:8792:8792"
     environment:
-      OLLAMA_URL: ${OLLAMA_URL:-http://kaydanskipc:11434}
+      # Default to the LAN IP rather than the hostname so we bypass Tailscale
+      # routing. Hostname `kaydanskipc` resolves to the tailnet IP via MagicDNS,
+      # which routes via WireGuard and adds latency under sustained load.
+      OLLAMA_URL: ${OLLAMA_URL:-http://192.168.4.186:11434}
       LILBLUE_TEST_MODEL: ${LILBLUE_TEST_MODEL:-qwen2.5:7b}
+      # Match Kyle-Rag's KYLE_RAG_OLLAMA_TIMEOUT_SECONDS=30. When the client
+      # times out, holding the upstream connection open longer piles work onto
+      # Ollama for responses no one will read.
+      PROXY_EMBED_TIMEOUT: ${PROXY_EMBED_TIMEOUT:-30}
+      PROXY_GEN_TIMEOUT: ${PROXY_GEN_TIMEOUT:-300}
       # ${VAR:?msg} makes compose REFUSE to start if VAR is unset or empty.
       # Prevents the silent login-loop failure mode where `docker compose up -d`
       # without `doppler run` substitutes "" into the container env and breaks

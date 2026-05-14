@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +18,11 @@ from server import lilblue
 from server.tracker import tracker
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://kaydanskipc:11434").rstrip("/")
+# Match Kyle-Rag's KYLE_RAG_OLLAMA_TIMEOUT_SECONDS. When the client times out at
+# 30s, we shouldn't keep an upstream connection open longer — that piles dead
+# work onto Ollama and prevents the queue from draining.
+PROXY_EMBED_TIMEOUT = int(os.environ.get("PROXY_EMBED_TIMEOUT", "30"))
+PROXY_GEN_TIMEOUT = int(os.environ.get("PROXY_GEN_TIMEOUT", "300"))
 
 _fairy = BugFairy(
     api_key=os.environ.get("BUG_FAIRY_API_KEY", ""),
@@ -92,7 +98,7 @@ def proxy_chat():
     fwd.add_header("Accept", "application/json")
 
     try:
-        with urllib.request.urlopen(fwd, timeout=300) as resp:
+        with urllib.request.urlopen(fwd, timeout=PROXY_GEN_TIMEOUT) as resp:
             status_code = resp.status
             if is_stream:
                 def _stream(response=resp):
@@ -127,6 +133,19 @@ def proxy_chat():
         err_body = exc.read()
         tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
+    except (TimeoutError, socket.timeout) as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 504, duration_ms, model=model)
+        return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+    except urllib.error.URLError as exc:
+        # Wraps TimeoutError when timeout expires inside urlopen
+        duration_ms = int((time.time() - started) * 1000)
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            tracker.finish(token, 504, duration_ms, model=model)
+            return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        tracker.finish(token, 502, duration_ms, model=model)
+        _fairy.capture_exception(exc)
+        return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)
@@ -170,7 +189,7 @@ def proxy_ollama_generate():
     fwd.add_header("Accept", "application/json")
 
     try:
-        with urllib.request.urlopen(fwd, timeout=300) as resp:
+        with urllib.request.urlopen(fwd, timeout=PROXY_GEN_TIMEOUT) as resp:
             status_code = resp.status
             if is_stream:
                 def _stream(response=resp):
@@ -205,6 +224,18 @@ def proxy_ollama_generate():
         err_body = exc.read()
         tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
+    except (TimeoutError, socket.timeout) as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 504, duration_ms, model=model)
+        return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+    except urllib.error.URLError as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            tracker.finish(token, 504, duration_ms, model=model)
+            return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        tracker.finish(token, 502, duration_ms, model=model)
+        _fairy.capture_exception(exc)
+        return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)
@@ -233,7 +264,7 @@ def proxy_ollama_embed():
     fwd.add_header("Accept", "application/json")
 
     try:
-        with urllib.request.urlopen(fwd, timeout=120) as resp:
+        with urllib.request.urlopen(fwd, timeout=PROXY_EMBED_TIMEOUT) as resp:
             status_code = resp.status
             data = resp.read()
             duration_ms = int((time.time() - started) * 1000)
@@ -245,6 +276,18 @@ def proxy_ollama_embed():
         err_body = exc.read()
         tracker.finish(token, exc.code, duration_ms, model=model)
         return app.response_class(err_body, status=exc.code, content_type="application/json")
+    except (TimeoutError, socket.timeout) as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 504, duration_ms, model=model)
+        return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+    except urllib.error.URLError as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        if isinstance(exc.reason, (TimeoutError, socket.timeout)):
+            tracker.finish(token, 504, duration_ms, model=model)
+            return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        tracker.finish(token, 502, duration_ms, model=model)
+        _fairy.capture_exception(exc)
+        return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)

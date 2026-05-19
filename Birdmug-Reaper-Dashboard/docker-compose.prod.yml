@@ -1,0 +1,69 @@
+services:
+  reaper-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: reaper_dashboard
+    restart: on-failure:3
+    ports:
+      - "0.0.0.0:8793:8793"
+    environment:
+      # Master Blaster Ollama on the LAN. Tailnet hostname `masterblaster`
+      # also works but adds Tailscale loopback latency from a Toshi-local
+      # container — prefer the LAN IP unless MB is reachable only via tailnet.
+      OLLAMA_URL: ${OLLAMA_URL:-http://192.168.4.33:11434}
+      REAPER_TEST_MODEL: ${REAPER_TEST_MODEL:-qwen3:14b}
+      # Match LilBlue's defaults — 10 minutes is the upstream ceiling for
+      # pathologically slow gens/embeds. Clients enforce their own shorter
+      # timeouts and retry independently.
+      PROXY_EMBED_TIMEOUT: ${PROXY_EMBED_TIMEOUT:-600}
+      PROXY_GEN_TIMEOUT: ${PROXY_GEN_TIMEOUT:-600}
+      # ${VAR:?msg} makes compose REFUSE to start if VAR is unset or empty.
+      # Prevents the silent login-loop failure mode where `docker compose up -d`
+      # without `doppler run` substitutes "" into the container env and breaks
+      # every JWT validation. Run via ~/deploy.sh or wrap with
+      # `doppler run --project birdmug-services --config prd -- docker compose ...`.
+      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET:?BIRDMUG_JWT_SECRET must be injected — use ~/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
+      BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
+      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY:?BUG_FAIRY_API_KEY must be injected — use ~/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
+    networks:
+      - reaper_net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8793/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: reaper_cloudflared
+    restart: on-failure:3
+    command: tunnel --no-autoupdate --config /etc/cloudflared/reaper-config.yml run
+    volumes:
+      - /home/falkensteink/.cloudflared:/etc/cloudflared
+    networks:
+      - reaper_net
+    depends_on:
+      reaper-dashboard:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+    # No explicit healthcheck — relying on cloudflared's internal reconnect
+    # logic + `restart: on-failure:3`. The cloudflare/cloudflared image does
+    # ship `curl` (LilBlue uses `curl -sf http://localhost:2000/healthz`),
+    # so adding a block back here later is fine; we just don't need it for
+    # parity. Do NOT add a `wget`-based check — that binary isn't in the
+    # image and the previous LilBlue probe exited 127 silently.
+
+networks:
+  reaper_net:
+    name: reaper_net

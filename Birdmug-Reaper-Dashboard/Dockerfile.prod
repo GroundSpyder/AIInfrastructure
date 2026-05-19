@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY server/ ./server/
+COPY reaper.png .
+
+EXPOSE 8793
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8793/health', timeout=3)"
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8793", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--timeout", "660", "--graceful-timeout", "60", "server.app:app"]

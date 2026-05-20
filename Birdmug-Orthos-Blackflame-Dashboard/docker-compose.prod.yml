@@ -36,7 +36,7 @@ services:
     network_mode: "host"
     command: tunnel --no-autoupdate --config /etc/cloudflared/obd-config.yml run
     volumes:
-      - /home/falkensteink/.cloudflared:/etc/cloudflared
+      - /home/falkensteink/.cloudflared:/etc/cloudflared:ro
     depends_on:
       obd:
         condition: service_healthy

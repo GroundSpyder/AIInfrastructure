@@ -46,7 +46,7 @@ services:
     restart: on-failure:3
     command: tunnel --no-autoupdate --config /etc/cloudflared/reaper-config.yml run
     volumes:
-      - /home/falkensteink/.cloudflared:/etc/cloudflared
+      - /home/falkensteink/.cloudflared:/etc/cloudflared:ro
     networks:
       - reaper_net
     depends_on:

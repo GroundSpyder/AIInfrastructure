@@ -48,7 +48,7 @@ services:
     restart: on-failure:3
     command: tunnel --no-autoupdate --config /etc/cloudflared/lilblue-config.yml run
     volumes:
-      - /home/falkensteink/.cloudflared:/etc/cloudflared
+      - /home/falkensteink/.cloudflared:/etc/cloudflared:ro
     networks:
       - lilblue_net
     depends_on:

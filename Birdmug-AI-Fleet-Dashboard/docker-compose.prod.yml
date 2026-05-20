@@ -1,0 +1,66 @@
+services:
+  ai-fleet-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: ai_fleet_dashboard
+    restart: on-failure:3
+    ports:
+      - "127.0.0.1:8794:8794"
+    environment:
+      # Backends are reached via Toshi's LAN-bound published ports (the
+      # docker0 bridge gateway). The federation backend is a pure HTTP
+      # forwarder, so we never need to be on the same docker network as
+      # the downstreams — and going via the host gateway keeps OBD
+      # (network_mode: host) reachable through the same code path as
+      # the bridge-networked LilBlue/Reaper.
+      LILBLUE_URL: ${LILBLUE_URL:-http://192.168.4.31:8792}
+      OBD_URL:     ${OBD_URL:-http://192.168.4.31:8791}
+      REAPER_URL:  ${REAPER_URL:-http://192.168.4.31:8793}
+      FEDERATION_TIMEOUT: ${FEDERATION_TIMEOUT:-30}
+      # Doppler-injected secrets. ${VAR:?msg} refuses to start the
+      # container if missing — prevents the 2026-05-12 silent-empty-env
+      # failure mode where login loops forever because the JWT secret
+      # substituted to "".
+      BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET:?BIRDMUG_JWT_SECRET must be injected — use ~/toshi-infra/deploy/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
+      BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
+      BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY:?BUG_FAIRY_API_KEY must be injected — use ~/toshi-infra/deploy/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
+    networks:
+      - ai_fleet_net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8794/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    container_name: ai_fleet_cloudflared
+    restart: on-failure:3
+    command: tunnel --no-autoupdate --config /etc/cloudflared/ai-fleet-config.yml run
+    volumes:
+      - /home/falkensteink/.cloudflared:/etc/cloudflared:ro
+    networks:
+      - ai_fleet_net
+    depends_on:
+      ai-fleet-dashboard:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 96M
+    # No explicit healthcheck — same rationale as LilBlue/Reaper. The
+    # cloudflared image ships `curl` (LilBlue uses it), so adding one
+    # back is fine if you want it. Skipped here for parity with Reaper.
+    # Do NOT use a `wget`-based check — that binary isn't in the image.
+
+networks:
+  ai_fleet_net:
+    name: ai_fleet_net

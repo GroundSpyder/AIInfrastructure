@@ -34,6 +34,8 @@ import sys
 import threading
 import time
 import traceback
+from typing import Callable
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
@@ -50,6 +52,8 @@ class BugFairy:
         dedup_window: float = 300.0,
         capture_screenshot: bool = True,
         min_status_code: int = 400,
+        should_report_http: Callable[[object, object], bool] | None = None,
+        rate_limit_cooldown: float = 60.0,
     ):
         self.api_key = api_key
         self.app = app
@@ -58,6 +62,8 @@ class BugFairy:
         self.dedup_window = dedup_window
         self.capture_screenshot = capture_screenshot
         self.min_status_code = min_status_code
+        self.should_report_http = should_report_http
+        self.rate_limit_cooldown = rate_limit_cooldown
 
         self._queue: queue.Queue = queue.Queue()
         self._recent_fingerprints: dict[str, float] = {}
@@ -66,6 +72,7 @@ class BugFairy:
         self._original_excepthook = None
         self._flush_thread = None
         self._running = False
+        self._rate_limited_until = 0.0
 
     def install(self):
         """Hook into sys.excepthook to automatically capture unhandled exceptions."""
@@ -122,6 +129,13 @@ class BugFairy:
             if response.status_code >= fairy.min_status_code:
                 try:
                     from flask import request as flask_request
+
+                    if fairy.should_report_http is not None:
+                        try:
+                            if not fairy.should_report_http(flask_request, response):
+                                return response
+                        except Exception:
+                            pass
 
                     exc = getattr(g, "_bugfairy_exc", None)
                     tb_str = getattr(g, "_bugfairy_tb", "")
@@ -207,6 +221,12 @@ class BugFairy:
                 raise
 
             if response.status_code >= fairy.min_status_code:
+                if fairy.should_report_http is not None:
+                    try:
+                        if not fairy.should_report_http(request, response):
+                            return response
+                    except Exception:
+                        pass
                 severity = "error" if response.status_code >= 500 else "warning"
                 title = f"HTTP {response.status_code} on {request.method} {request.url.path}"
                 metadata = {
@@ -349,9 +369,14 @@ class BugFairy:
     def flush(self):
         """Send all queued reports immediately."""
         while not self._queue.empty():
+            if self._is_rate_limited():
+                return
             try:
                 payload = self._queue.get_nowait()
-                self._send(payload)
+                sent = self._send(payload)
+                if sent is None and self._is_rate_limited():
+                    self._queue.put(payload)
+                    return
             except queue.Empty:
                 break
 
@@ -448,6 +473,16 @@ class BugFairy:
             self._recent_fingerprints[fp] = now
             return False
 
+    def _is_rate_limited(self) -> bool:
+        with self._lock:
+            return time.time() < self._rate_limited_until
+
+    def _enter_rate_limit_cooldown(self, seconds: float) -> None:
+        cooldown = max(1.0, float(seconds))
+        until = time.time() + cooldown
+        with self._lock:
+            self._rate_limited_until = max(self._rate_limited_until, until)
+
     def _flush_loop(self):
         while self._running:
             time.sleep(self.flush_interval)
@@ -473,6 +508,18 @@ class BugFairy:
         try:
             with urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read())
+        except HTTPError as e:
+            if e.code == 429:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                try:
+                    cooldown = float(retry_after) if retry_after else self.rate_limit_cooldown
+                except (TypeError, ValueError):
+                    cooldown = self.rate_limit_cooldown
+                self._enter_rate_limit_cooldown(cooldown)
+                log.warning("bug-fairy: rate limited; cooling down for %.0fs", cooldown)
+                return None
+            log.warning("bug-fairy: request failed — %s", e)
+            return None
         except URLError as e:
             log.warning("bug-fairy: request failed — %s", e)
             return None

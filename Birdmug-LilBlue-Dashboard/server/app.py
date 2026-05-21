@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -18,15 +19,39 @@ from server import lilblue
 from server.tracker import tracker
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://kaydanskipc:11434").rstrip("/")
-# Match Kyle-Rag's KYLE_RAG_OLLAMA_TIMEOUT_SECONDS. When the client times out at
-# 30s, we shouldn't keep an upstream connection open longer — that piles dead
-# work onto Ollama and prevents the queue from draining.
-PROXY_EMBED_TIMEOUT = int(os.environ.get("PROXY_EMBED_TIMEOUT", "30"))
+# Embedding bursts can sit behind a busy shared Ollama queue for minutes. The
+# caller chooses its own timeout budget; the proxy should not fail first.
+PROXY_EMBED_TIMEOUT = int(os.environ.get("PROXY_EMBED_TIMEOUT", "600"))
 PROXY_GEN_TIMEOUT = int(os.environ.get("PROXY_GEN_TIMEOUT", "300"))
+
+_KNOWN_ROUTE_PATHS = {
+    "/",
+    "/lilblue.png",
+    "/api/status",
+    "/api/test",
+    "/health",
+    "/v1/chat/completions",
+    "/v1/models",
+    "/api/generate",
+    "/api/chat",
+    "/api/embed",
+    "/api/embeddings",
+}
+
+
+def _should_report_bug_fairy_http(flask_request, response) -> bool:
+    """Suppress probe/scanner noise while keeping real proxy failures visible."""
+    path = flask_request.path
+    if response.status_code == 404 and path not in _KNOWN_ROUTE_PATHS:
+        return False
+    if path in {"/api/status", "/api/test"} and response.status_code in (401, 503):
+        return False
+    return True
 
 _fairy = BugFairy(
     api_key=os.environ.get("BUG_FAIRY_API_KEY", ""),
     app="lilblue-dashboard",
+    should_report_http=_should_report_bug_fairy_http,
 )
 
 app = Flask(__name__)
@@ -146,6 +171,10 @@ def proxy_chat():
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
+    except http.client.HTTPException as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 502, duration_ms, model=model)
+        return jsonify({"error": "upstream disconnected", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)
@@ -236,6 +265,10 @@ def proxy_ollama_generate():
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
+    except http.client.HTTPException as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 502, duration_ms, model=model)
+        return jsonify({"error": "upstream disconnected", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)
@@ -288,6 +321,10 @@ def proxy_ollama_embed():
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
+    except http.client.HTTPException as exc:
+        duration_ms = int((time.time() - started) * 1000)
+        tracker.finish(token, 502, duration_ms, model=model)
+        return jsonify({"error": "upstream disconnected", "detail": str(exc)}), 502
     except Exception as exc:
         duration_ms = int((time.time() - started) * 1000)
         tracker.finish(token, 500, duration_ms, model=model)

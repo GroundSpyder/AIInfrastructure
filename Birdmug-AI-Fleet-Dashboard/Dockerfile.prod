@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# openssh-client: SSH-based control plane to MB + Kaydanski (per
+# memory/feedback_ssh_over_windows_agents.md — Kyle's rule, SSH beats
+# per-host Flask agents that die silently).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-client ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .
@@ -8,9 +15,17 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ ./server/
 COPY fleet.png .
 
+# Audit log volume mount target. The named volume fleet_audit_data is
+# bound here in docker-compose.prod.yml so the log survives rebuilds.
+RUN mkdir -p /data
+
+# Pre-create the SSH dir so the mounted key inherits sane perms. The
+# host-side mount in docker-compose.prod.yml is read-only.
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
 EXPOSE 8794
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8794/health', timeout=3)"
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8794", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--timeout", "60", "--graceful-timeout", "30", "server.app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8794", "--worker-class", "gthread", "--workers", "1", "--threads", "8", "--timeout", "120", "--graceful-timeout", "30", "server.app:app"]

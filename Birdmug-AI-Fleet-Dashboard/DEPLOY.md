@@ -1,34 +1,46 @@
 # AI Fleet Dashboard — Toshi Deploy Notes
 
-The AI Fleet Dashboard is a *federating* dashboard. It does not own model
-state, traffic metrics, or proxy routes — those still live in the three
-per-service dashboards (LilBlue, OBD, Reaper). This service is a pure HTTP
-forwarder + tabbed UI:
+The AI Fleet Dashboard is the unified entry point for fleet model
+visibility + control. Four tabs:
 
 ```
-   browser  ─►  ai.birdmug.com  ─►  ai_fleet_dashboard
-                                       │
-                                       ├── /api/status?backend=reaper   → http://192.168.4.31:8793/api/status
-                                       ├── /api/status?backend=lilblue  → http://192.168.4.31:8792/api/status
-                                       └── /api/status?backend=obd      → http://192.168.4.31:8791/api/status
+   browser  ─►  ai.birdmug.com
+                  │
+                  ├── tab REAPER   ──► iframe → https://reaper.birdmug.com/    (original CSS, full chrome)
+                  ├── tab LILBLUE  ──► iframe → https://lilblue.birdmug.com/   (original CSS, full chrome)
+                  ├── tab OBD      ──► iframe → https://obd.birdmug.com/       (original CSS, full chrome)
+                  └── tab MODELS   ──► iframe → /models    (served by THIS container — fleet model CRUD)
 ```
 
-Each forwarded request carries the user's BirdMug-Auth cookie/bearer
-through, so the downstream `@require_auth` decorators keep working
-unchanged. All four services share `BIRDMUG_JWT_SECRET` from Doppler
-`birdmug-services/prd` — no extra auth wiring needed.
+The three per-service tabs are pure iframes carrying the user's
+`birdmug_token` cookie (domain `.birdmug.com`) — no federation, no
+copied CSS, no drift. Kyle's 2026-05-21 directive: each tab must look
+like its original page. We dropped `?embed=1` so the inner headers
+render normally.
+
+The MODELS tab is served by this container at `/models`. It talks to:
+
+```
+   ai_fleet_dashboard container
+       │
+       ├── HTTP  ──► http://192.168.4.33:11434     (MB Ollama — read /api/ps, /api/tags, /api/show; write /api/generate, /api/pull, /api/delete)
+       ├── HTTP  ──► http://kaydanskipc:11434      (Kaydanski Ollama — same)
+       ├── SSH   ──► Kyle@192.168.4.33             (MB control plane — nssm get/set, restart, warm-set.json)
+       └── SSH   ──► Kaiden@kaydanskipc            (Kaydanski control plane — same)
+```
+
+**Why SSH instead of a per-host Flask agent.** Kyle's rule (see
+`memory/feedback_ssh_over_windows_agents.md`): "the little agents keep
+dying silently and I have to reboot them. SSH just works." OpenSSH on
+Windows is a first-class Microsoft service, restart-resilient.
 
 ## One-time Toshi setup
 
 ```bash
-# Create tunnel
+# Tunnel + DNS
 cloudflared tunnel create ai-fleet
-# Note the returned tunnel ID — paste it into the config below.
-
-# Fix credentials permissions (cloudflared writes 400, needs 644)
 chmod 644 ~/.cloudflared/<ai-fleet-tunnel-id>.json
 
-# Write config — bridge networking so use container name, NOT localhost
 cat > ~/.cloudflared/ai-fleet-config.yml << 'EOF'
 tunnel: <ai-fleet-tunnel-id>
 credentials-file: /etc/cloudflared/<ai-fleet-tunnel-id>.json
@@ -39,9 +51,46 @@ ingress:
   - service: http_status:404
 EOF
 
-# Register DNS
 cloudflared tunnel route dns ai-fleet ai.birdmug.com
 ```
+
+## One-time SSH key authorization on MB + Kaydanski
+
+The dashboard container uses Toshi's host SSH key
+(`/home/falkensteink/.ssh/id_ed25519`) to reach the two Windows hosts.
+The corresponding public key must be installed in
+`C:\ProgramData\ssh\administrators_authorized_keys` on each (since
+both users — `Kyle` on MB, `Kaiden` on Kaydanski — are Administrators,
+Windows OpenSSH uses the admin-scope authorized_keys file, not the
+per-user `~/.ssh/authorized_keys`).
+
+**Format** — keep the `from=` clause for safety, matching Toshi's
+tailnet + LAN IPs:
+
+```
+from="100.107.130.46,192.168.4.31" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...toshi-falkensteink-fleet-dashboard
+```
+
+**Master Blaster** — current key (toshi-falkensteink-fleet-dashboard)
+was installed 2026-05-21. To re-install or refresh:
+
+```powershell
+# On MB, as Kyle (admin). gsudo is installed so no UAC click needed.
+gsudo powershell -NoProfile -Command "notepad C:\ProgramData\ssh\administrators_authorized_keys"
+# Paste the public key line ending with toshi-falkensteink-fleet-dashboard
+```
+
+**Kaydanski** — equivalent: `gsudo powershell -NoProfile -Command
+"notepad C:\ProgramData\ssh\administrators_authorized_keys"` as Kaiden.
+
+**Verify from Toshi** (run on Toshi itself):
+
+```bash
+ssh -o BatchMode=yes Kyle@192.168.4.33 "hostname && nssm version"
+ssh -o BatchMode=yes Kaiden@kaydanskipc  "hostname && nssm version"
+```
+
+Both must return host + nssm version without prompting.
 
 ## Deploy / redeploy
 
@@ -52,8 +101,8 @@ flock -w 600 /tmp/toshi-deploy.lock \
   ~/toshi-infra/deploy/deploy.sh AI-Fleet-Dashboard main prod
 ```
 
-deploy.sh handles the flock + Doppler injection automatically. Required
-registration entries are already in `~/toshi-infra/deploy/deploy.sh`:
+`deploy.sh` handles the flock + Doppler injection. Registration entries
+required in `~/toshi-infra/deploy/deploy.sh`:
 
 | Map | Value |
 |---|---|
@@ -65,79 +114,88 @@ registration entries are already in `~/toshi-infra/deploy/deploy.sh`:
 
 ## Secrets (Doppler project: birdmug-services)
 
-- `BIRDMUG_JWT_SECRET` — shared, already present (same as LilBlue/OBD/Reaper)
-- `BUG_FAIRY_API_KEY` — shared, already present
-- `BIRDMUG_AUTH_URL` — shared, already present
-- `LILBLUE_URL` / `OBD_URL` / `REAPER_URL` — defaults to `http://192.168.4.31:879N`,
-  override in Doppler only if the per-service ports ever change
+- `BIRDMUG_JWT_SECRET` — shared with LilBlue/Reaper/OBD. Used for
+  `@require_auth` on `/`, `/models`, and every `/api/models/*` route.
+- `BUG_FAIRY_API_KEY` — shared.
+- `BIRDMUG_AUTH_URL` — shared, defaults to `https://accounts.birdmug.com`.
+- `FLEET_AUDIT_PATH` — defaulted to `/data/fleet_audit.log`; override
+  only if mount point changes.
+
+## Volume mounts
+
+| Host path | Container path | Mode | Purpose |
+|---|---|---|---|
+| `/home/falkensteink/.ssh/id_ed25519` | `/root/.ssh/id_ed25519` | ro | SSH key for MB + Kaydanski control |
+| `/home/falkensteink/.ssh/known_hosts` | `/root/.ssh/known_hosts` | ro | Avoid first-use prompt; allow strict checking once cached |
+| named volume `ai_fleet_audit_data` | `/data` | rw | Audit log (`fleet_audit.log`) — survives rebuilds |
 
 ## Port binding
 
-The `ai_fleet_dashboard` container publishes its port to
-`127.0.0.1:8794:8794` (NOT `0.0.0.0`). This dashboard has no LAN consumers —
-only the cloudflared sidecar reaches it, and that's via the bridge network
-DNS name `ai_fleet_dashboard:8794`. Tighter than LilBlue/Reaper's
-`0.0.0.0:879N` because those expose proxy routes to LAN consumers like
-Kyle-Rag; this one doesn't.
+`127.0.0.1:8794:8794` (localhost-only). The cloudflared sidecar
+reaches the app via bridge-network DNS `ai_fleet_dashboard:8794`. No
+LAN consumers — every external reach is through the tunnel.
 
-## Auth federation
+## Endpoints
 
-The federation backend (`server/app.py::_forward_auth_headers`) copies the
-incoming user's `birdmug_token` cookie, `bm_token` cookie, and/or
-`Authorization` header onto the outbound request. Because
-`accounts.birdmug.com` sets `birdmug_token` with `domain=.birdmug.com`,
-every subdomain (including `ai.birdmug.com` and the downstream
-`lilblue/obd/reaper.birdmug.com`) sees the same cookie automatically.
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET    | `/`                                        | yes | Outer tab shell |
+| GET    | `/models`                                  | yes | Models management page |
+| GET    | `/fleet.png`                               | no  | Favicon |
+| GET    | `/health`                                  | no  | Watchdog + Kuma probe |
+| GET    | `/api/models/hosts`                        | yes | Host registry |
+| GET    | `/api/models/<host>/ps`                    | yes | Loaded models (Ollama `/api/ps`) |
+| GET    | `/api/models/<host>/tags`                  | yes | Installed models (Ollama `/api/tags`) |
+| POST   | `/api/models/<host>/show`                  | yes | Model details |
+| POST   | `/api/models/<host>/load`                  | yes | Warm into VRAM (`{model, strict_gpu, keep_alive}`) |
+| POST   | `/api/models/<host>/unload`                | yes | Evict (`{model}`, sets `keep_alive=0s`) |
+| POST   | `/api/models/<host>/pull`                  | yes | Pull new — streams SSE progress |
+| DELETE | `/api/models/<host>/delete`                | yes | Delete — requires `{model, confirm_name: <same>}` |
+| GET    | `/api/models/<host>/env`                   | yes | NSSM AppEnvironmentExtra (via SSH) |
+| PUT    | `/api/models/<host>/env`                   | yes | Replace NSSM env (via SSH) — caller must restart |
+| POST   | `/api/models/<host>/restart-ollama`        | yes | `nssm restart OllamaService` (via SSH) |
+| GET    | `/api/models/<host>/warm-set`              | yes | Read warm-set.json (via SSH) |
+| PUT    | `/api/models/<host>/warm-set`              | yes | Write warm-set.json (via SSH) |
+| GET    | `/api/audit`                               | yes | Last 200 audit entries |
 
-If you ever rotate `BIRDMUG_JWT_SECRET`, redeploy ALL FOUR services in
-the same window (this one + LilBlue + OBD + Reaper) — otherwise the
-federation backend will hold a different secret than the downstreams and
-all forwarded requests will 401.
+`<host>` is `mb` or `kaydanski`.
 
 ## Gunicorn worker model
 
 ```
 gunicorn --bind 0.0.0.0:8794 \
-  --worker-class gthread --workers 1 --threads 8 --timeout 60 \
+  --worker-class gthread --workers 1 --threads 8 --timeout 120 \
   --graceful-timeout 30 server.app:app
 ```
 
-Shorter timeout than LilBlue/Reaper (60s vs 660s) because this service
-only forwards short status JSON polls — no long LLM streams pass through
-it. If you ever federate the proxy routes (`/v1/*`, `/api/chat`, etc.)
-through here too, bump the timeout to match LilBlue.
+Timeout bumped to 120s (was 60s) to cover `nssm restart` and
+`/api/show` round-trips that include an SSH leg. SSE pull-progress is
+exempt from this timeout because gthread streams responses without
+counting reader idle time as inactivity.
 
 ## Cloudflared healthcheck
 
-Intentionally omitted — same rationale as LilBlue/Reaper. The cloudflared
-binary self-monitors and reconnects; `restart: on-failure:3` handles
-crashed binaries. The mount is now `:ro` so the tunnel can read its
-credentials but can't write to the host filesystem.
+Intentionally omitted — same rationale as LilBlue/Reaper. The
+cloudflared binary self-monitors; `restart: on-failure:3` handles
+crashes. Mount is `:ro`.
 
-## Network note
+## Kuma monitoring
 
-Uses **bridge networking** (`ai_fleet_net`). The cloudflared service
-reaches the app via container DNS `http://ai_fleet_dashboard:8794`. To
-reach the three downstream dashboards, the app uses Toshi's LAN IP
-(`192.168.4.31:879N`) — that path works whether the downstream is
-bridge-networked (LilBlue/Reaper) or host-networked (OBD), so we don't
-need to be on the same docker network as any of them.
-
-## Adding Uptime Kuma monitor
-
-Per FRAMEWORKS.md, add a Kuma monitor against
+Required per FRAMEWORKS.md: Kuma external HTTP probe against
 `https://ai.birdmug.com/health` (no auth on `/health`, returns 200 with
 `{"status":"ok"}`).
 
+## Audit log
+
+Every write op (load, unload, pull, delete, env_set, restart, warm-set
+write) appends one JSON line to `/data/fleet_audit.log`. Tail via
+`GET /api/audit` (returns the most recent 200 entries newest-last).
+
 ## Relationship to existing dashboards
 
-The three per-service dashboards stay up and canonical. This service is
-purely additive — kill it and the original URLs (lilblue/obd/reaper.birdmug.com)
-still work. If you later decide to retire the per-service public URLs in
-favor of `ai.birdmug.com/#reaper` etc., remove only their cloudflared
-sidecars (the proxy containers stay since Kyle-Rag and ops-rag hit the
-LAN ports, not the public hostnames).
-
-See [`../falkensteink-API-Fleet-Dashboard.md`](../falkensteink-API-Fleet-Dashboard.md)
-for the consumer-facing surface description (TBD — not strictly needed
-since the dashboard is browser-only and BirdMug-Auth gates it).
+The three per-service dashboards (LilBlue, Reaper, OBD) remain canonical
+and reachable at their own URLs. This service is purely additive:
+- killing this container does NOT take down lilblue/reaper/obd
+- killing this container DOES disable the unified MODELS view + the
+  cross-host model CRUD GUI (you can still drive Ollama directly per
+  host via SSH or LAN HTTP).

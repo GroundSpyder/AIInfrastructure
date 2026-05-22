@@ -8,30 +8,44 @@ services:
     ports:
       - "127.0.0.1:8794:8794"
     environment:
-      # Backends are reached via Toshi's LAN-bound published ports (the
-      # docker0 bridge gateway). The federation backend is a pure HTTP
-      # forwarder, so we never need to be on the same docker network as
-      # the downstreams — and going via the host gateway keeps OBD
-      # (network_mode: host) reachable through the same code path as
-      # the bridge-networked LilBlue/Reaper.
-      LILBLUE_URL: ${LILBLUE_URL:-http://192.168.4.31:8792}
-      OBD_URL:     ${OBD_URL:-http://192.168.4.31:8791}
-      REAPER_URL:  ${REAPER_URL:-http://192.168.4.31:8793}
-      FEDERATION_TIMEOUT: ${FEDERATION_TIMEOUT:-30}
+      # Three tabs (reaper/lilblue/obd) load their real public URLs in
+      # iframes — no upstream config needed here. The MODELS tab is
+      # served by this container at /models and talks to:
+      #   - Ollama HTTP on each host's LAN address (read + load/unload/pull/delete)
+      #   - SSH on each host (NSSM env + service restart + warm-set file ops)
+      #
       # Doppler-injected secrets. ${VAR:?msg} refuses to start the
       # container if missing — prevents the 2026-05-12 silent-empty-env
-      # failure mode where login loops forever because the JWT secret
-      # substituted to "".
+      # failure mode.
       BIRDMUG_JWT_SECRET: ${BIRDMUG_JWT_SECRET:?BIRDMUG_JWT_SECRET must be injected — use ~/toshi-infra/deploy/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
       BIRDMUG_AUTH_URL: ${BIRDMUG_AUTH_URL:-https://accounts.birdmug.com}
       BUG_FAIRY_API_KEY: ${BUG_FAIRY_API_KEY:?BUG_FAIRY_API_KEY must be injected — use ~/toshi-infra/deploy/deploy.sh or `doppler run --project birdmug-services --config prd -- ...`}
+      FLEET_AUDIT_PATH: /data/fleet_audit.log
+    volumes:
+      # SSH key for Toshi -> MB / Kaydanski. Read-only — the container
+      # only needs to use it, never modify it. The key must be authorized
+      # on both Windows hosts' administrators_authorized_keys (with a
+      # from="100.107.130.46,192.168.4.31" prefix for safety).
+      #
+      # known_hosts is intentionally NOT mounted — the container's
+      # /root/.ssh/known_hosts is populated on first SSH via
+      # StrictHostKeyChecking=accept-new (see server/fleet_ssh.py).
+      # Each container restart re-accepts; this is acceptable since
+      # the LAN path Toshi → MB/Kaydanski is trusted, and a writable
+      # mount would create a host-file editing surface.
+      - /home/falkensteink/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      # Audit log volume — survives rebuilds.
+      - fleet_audit_data:/data
     networks:
       - ai_fleet_net
     deploy:
       resources:
         limits:
-          cpus: "0.15"
-          memory: 128M
+          # Bumped from 0.15 / 128M — the models page polls /api/ps
+          # every 10s and ssh-exec needs a small burst headroom. Still
+          # tiny vs heavy runners (Kyle-Rag at 1.0 cpu).
+          cpus: "0.30"
+          memory: 256M
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8794/health', timeout=3)"]
       interval: 30s
@@ -56,11 +70,11 @@ services:
         limits:
           cpus: "0.10"
           memory: 96M
-    # No explicit healthcheck — same rationale as LilBlue/Reaper. The
-    # cloudflared image ships `curl` (LilBlue uses it), so adding one
-    # back is fine if you want it. Skipped here for parity with Reaper.
-    # Do NOT use a `wget`-based check — that binary isn't in the image.
 
 networks:
   ai_fleet_net:
     name: ai_fleet_net
+
+volumes:
+  fleet_audit_data:
+    name: ai_fleet_audit_data

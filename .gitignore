@@ -1,0 +1,14 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Ollama warm-set state - written by the AI Fleet Dashboard at
+# runtime (Birdmug-AI-Fleet-Dashboard/server/models_api.py
+# WARM_SET_PATH['mb']). Not source. The fallback defaults baked into
+# AI-Resume.ps1 cover the missing-file case.
+master-blaster-ai-control/warm-set.json
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db

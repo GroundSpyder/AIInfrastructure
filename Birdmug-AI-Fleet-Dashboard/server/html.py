@@ -67,7 +67,7 @@ INDEX_HTML: bytes = """<!doctype html>
     <span class="target-url"><a id="openInNew" href="#" target="_blank" rel="noopener">open in new tab ↗</a></span>
   </nav>
   <main>
-    <iframe id="frame" class="dashboard-frame" name="dashboard" title="Dashboard" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+    <iframe id="frame" class="dashboard-frame" name="dashboard" title="Dashboard" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>
     <div class="loading" id="loading">Loading…</div>
   </main>
   <script>

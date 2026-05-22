@@ -84,6 +84,12 @@ MODELS_HTML: bytes = """<!doctype html>
     .warmtag { background:#070a10; border:1px solid var(--line); border-radius:999px; padding:3px 9px 3px 11px; font-family:Consolas, monospace; font-size:12px; display:inline-flex; align-items:center; gap:6px; }
     .warmtag button { padding:0 5px; font-size:11px; border:none; background:transparent; color:var(--muted); }
     .warmtag button:hover { color:var(--bad); }
+    .modal select { width:100%; background:#070a10; border:1px solid var(--line); color:var(--bone); border-radius:5px; padding:8px 10px; font:inherit; margin-bottom:4px; }
+    .modal .field { margin:10px 0 14px; }
+    .modal .field label.fieldlabel { display:block; margin-bottom:6px; font-size:12px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; }
+    .modal .field .help { font-size:11px; color:var(--muted); margin-top:4px; }
+    .modal .field .checkrow { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text); }
+    .modal h2.load { color:var(--accent); }
   </style>
 </head>
 <body>
@@ -94,6 +100,34 @@ MODELS_HTML: bytes = """<!doctype html>
   </div>
 
   <div class="grid-hosts" id="hosts"></div>
+</div>
+
+<div class="modal-backdrop" id="loadModal">
+  <div class="modal">
+    <h2 class="load">Load model</h2>
+    <p>Warm <code id="loadModalModel"></code> into VRAM on <code id="loadModalHost"></code>.</p>
+    <div class="field">
+      <label class="fieldlabel" for="loadModalKeepAlive">keep_alive</label>
+      <select id="loadModalKeepAlive">
+        <option value="0s">0s — evict immediately</option>
+        <option value="5m">5m — Ollama default</option>
+        <option value="1h">1h</option>
+        <option value="24h" selected>24h</option>
+        <option value="-1">forever (-1)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="checkrow">
+        <input type="checkbox" id="loadModalStrictGpu">
+        <span>Strict GPU only</span>
+      </label>
+      <div class="help">Unchecked (default): Ollama auto-splits layers GPU/CPU if the model doesn't fit. Checked: refuse to load if it can't all fit on GPU.</div>
+    </div>
+    <div class="modal-actions">
+      <button id="loadModalCancel">Cancel</button>
+      <button id="loadModalConfirm" class="primary">Load</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="modal">
@@ -425,11 +459,25 @@ function renderInstalledRow(host, m) {
 }
 
 function promptLoad(host, model) {
-  // Quick inline prompt for keep_alive + strict_gpu
-  const ka = prompt('keep_alive for ' + model + '? (0s | 5m | 1h | 24h | -1 for forever)', '24h');
-  if (ka === null) return;
-  const strict = confirm('Strict GPU? OK = GPU-only (fail if too big). Cancel = allow CPU spillover.');
-  doLoad(host, model, { keep_alive: ka, strict_gpu: strict });
+  // Custom modal instead of native prompt()/confirm() — Chrome blocks
+  // those in sandboxed iframes without allow-modals, and the UX of
+  // chained native dialogs is poor anyway.
+  const modal = document.getElementById('loadModal');
+  document.getElementById('loadModalModel').textContent = model;
+  document.getElementById('loadModalHost').textContent = host;
+  const kaSel = document.getElementById('loadModalKeepAlive');
+  const strictBox = document.getElementById('loadModalStrictGpu');
+  kaSel.value = '24h';
+  strictBox.checked = false;
+  document.getElementById('loadModalCancel').onclick = () => modal.classList.remove('show');
+  document.getElementById('loadModalConfirm').onclick = () => {
+    const ka = kaSel.value;
+    const strict = strictBox.checked;
+    modal.classList.remove('show');
+    doLoad(host, model, { keep_alive: ka, strict_gpu: strict });
+  };
+  modal.classList.add('show');
+  kaSel.focus();
 }
 
 async function doLoad(host, model, opts) {

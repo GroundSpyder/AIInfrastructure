@@ -95,14 +95,18 @@ Both must return host + nssm version without prompting.
 ## Deploy / redeploy
 
 ```bash
-cd ~/AIInfrastructure
-git pull
-flock -w 600 /tmp/toshi-deploy.lock \
-  ~/toshi-infra/deploy/deploy.sh AI-Fleet-Dashboard main prod
+~/toshi-infra/deploy/deploy.sh AI-Fleet-Dashboard main prod
 ```
 
-`deploy.sh` handles the flock + Doppler injection. Registration entries
-required in `~/toshi-infra/deploy/deploy.sh`:
+`deploy.sh` self-locks on `/tmp/toshi-deploy.lock` (see lines 82-83:
+`exec 200>$LOCKFILE; flock -w 600 200`). **Do not wrap the call in
+another `flock -w 600 /tmp/toshi-deploy.lock`** — that holds an
+external lock that the internal flock cannot acquire, and the deploy
+deadlocks silently (no log output, process stuck in `do_wait`).
+Discovered 2026-05-21 while shipping this dashboard.
+
+`deploy.sh` does its own `git pull` and Doppler injection. Registration
+entries required in `~/toshi-infra/deploy/deploy.sh`:
 
 | Map | Value |
 |---|---|

@@ -91,6 +91,7 @@ MODELS_HTML: bytes = """<!doctype html>
     .modal .field .checkrow { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text); }
     .modal h2.load { color:var(--accent); }
     .modal h2.test { color:var(--good); }
+    .modal h2.warn { color:var(--warn); }
     .modal .test-prompt { width:100%; min-height:80px; resize:vertical; background:#070a10; border:1px solid var(--line); color:var(--bone); border-radius:5px; padding:8px 10px; font:inherit; font-size:13px; }
     .modal .test-result { background:#040608; border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:10px; font-family:Consolas, monospace; font-size:12px; max-height:240px; overflow:auto; }
     .modal .test-result .stat { color:var(--accent); }
@@ -124,6 +125,17 @@ MODELS_HTML: bytes = """<!doctype html>
     <h2>Recent Actions</h2>
     <div id="auditWrap"><div class="empty">loading…</div></div>
   </section>
+</div>
+
+<div class="modal-backdrop" id="restartModal">
+  <div class="modal">
+    <h2 class="warn">Restart OllamaService</h2>
+    <p>Restart Ollama on <code id="restartModalHost"></code>. All currently loaded models will be evicted and reloaded on next use. Brief downtime (~5-10s).</p>
+    <div class="modal-actions">
+      <button id="restartModalCancel">Cancel</button>
+      <button id="restartModalConfirm" class="danger">Restart</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="testModal">
@@ -805,15 +817,24 @@ async function saveEnvKey(host, key, value) {
   loadAudit();
 }
 
-async function doRestart(host) {
-  if (!confirm('Restart OllamaService on ' + host + '? Loaded models will be evicted.')) return;
-  try {
-    await api('POST', '/api/models/' + host + '/restart-ollama');
-    toast(host + ': OllamaService restarted');
-  } catch (e) {
-    toast(host + ' restart failed: ' + e.message, 'err');
-  }
-  setTimeout(() => { refreshHost(host).then(render); loadAudit(); }, 3000);
+function doRestart(host) {
+  // Custom modal (was native confirm() — works in the iframe sandbox
+  // since allow-modals is set, but the dark-theme styling is more
+  // consistent and matches the Load/Delete confirmation pattern).
+  const modal = document.getElementById('restartModal');
+  document.getElementById('restartModalHost').textContent = host;
+  document.getElementById('restartModalCancel').onclick = () => modal.classList.remove('show');
+  document.getElementById('restartModalConfirm').onclick = async () => {
+    modal.classList.remove('show');
+    try {
+      await api('POST', '/api/models/' + host + '/restart-ollama');
+      toast(host + ': OllamaService restarted');
+    } catch (e) {
+      toast(host + ' restart failed: ' + e.message, 'err');
+    }
+    setTimeout(() => { refreshHost(host).then(render); loadAudit(); }, 3000);
+  };
+  modal.classList.add('show');
 }
 
 // Initial load + 10s refresh of ps + tags (skipping env + warm-set which are SSH-bound)

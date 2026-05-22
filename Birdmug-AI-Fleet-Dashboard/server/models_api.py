@@ -334,11 +334,17 @@ def pull_model(alias: str):
     def gen():
         last_status = None
         try:
+            # 10s connect, 600s read (10 min between bytes). Pulls can
+            # take hours overall, but a 10-minute byte-level silence
+            # almost certainly means upstream is hung — without this
+            # cap a totally silent stream pins a gunicorn thread
+            # forever. Ollama emits a status line at least every few
+            # seconds during a real pull, so 600s is loose enough.
             with requests.post(
                 f"{spec.ollama_url}/api/pull",
                 json={"model": model, "stream": True},
                 stream=True,
-                timeout=(10, None),  # 10s connect, no read timeout — pulls can take hours
+                timeout=(10, 600),
             ) as r:
                 r.raise_for_status()
                 for raw in r.iter_lines(decode_unicode=True):

@@ -88,6 +88,12 @@ def run_remote(host_alias: str, command: str, timeout: int = 30) -> str:
 
     Raises SSHError on non-zero exit or timeout. Stderr is captured and
     included in the error — we never silently discard it.
+
+    Uses SSH ControlMaster (persistent multiplexed connection) so the
+    second+ call to a given host reuses the TCP/TLS leg from the first.
+    Without this, every dashboard tick was paying ~500ms per call for
+    handshake. With it, repeats drop to ~30ms. The control socket lives
+    in /tmp/ssh-cm/ which is writable inside the container.
     """
     if host_alias not in HOSTS:
         raise ValueError(f"unknown host alias: {host_alias!r}")
@@ -99,6 +105,9 @@ def run_remote(host_alias: str, command: str, timeout: int = 30) -> str:
         "-o", "ConnectTimeout=5",
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ServerAliveInterval=10",
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPath=/tmp/ssh-cm/%r@%h:%p",
+        "-o", "ControlPersist=300",
         f"{spec.ssh_user}@{spec.ssh_addr}",
         command,
     ]

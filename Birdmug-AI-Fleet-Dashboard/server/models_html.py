@@ -90,6 +90,25 @@ MODELS_HTML: bytes = """<!doctype html>
     .modal .field .help { font-size:11px; color:var(--muted); margin-top:4px; }
     .modal .field .checkrow { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text); }
     .modal h2.load { color:var(--accent); }
+    .modal h2.test { color:var(--good); }
+    .modal .test-prompt { width:100%; min-height:80px; resize:vertical; background:#070a10; border:1px solid var(--line); color:var(--bone); border-radius:5px; padding:8px 10px; font:inherit; font-size:13px; }
+    .modal .test-result { background:#040608; border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin-top:10px; font-family:Consolas, monospace; font-size:12px; max-height:240px; overflow:auto; }
+    .modal .test-result .stat { color:var(--accent); }
+    .modal .test-result .stat.good { color:var(--good); }
+    .modal .test-result .stat.bad { color:var(--bad); }
+    .modal .test-result pre { margin:6px 0 0; white-space:pre-wrap; color:var(--text); font-size:12px; }
+    .audit { margin-top:22px; }
+    .audit h2 { margin:0 0 10px; font-size:14px; font-weight:700; letter-spacing:.04em; color:var(--muted); text-transform:uppercase; }
+    .audit-table { width:100%; border-collapse:collapse; font-size:12px; background:#0a0d13; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .audit-table th { text-align:left; padding:8px 10px; background:#11161e; color:var(--muted); font-weight:600; border-bottom:1px solid var(--line); font-size:11px; letter-spacing:.04em; text-transform:uppercase; }
+    .audit-table td { padding:7px 10px; border-bottom:1px solid #11161e; vertical-align:top; font-family:Consolas, monospace; }
+    .audit-table tr:last-child td { border-bottom:none; }
+    .audit-table tr.ok td.action { color:var(--good); }
+    .audit-table tr.fail td.action { color:var(--bad); }
+    .audit-table td.ts { color:var(--muted); white-space:nowrap; }
+    .audit-table td.detail { color:var(--muted); max-width:420px; overflow-wrap:anywhere; }
+    .audit-table td.host { color:var(--mb); }
+    .audit-table td.host.kaydanski { color:var(--kayd); }
   </style>
 </head>
 <body>
@@ -100,6 +119,29 @@ MODELS_HTML: bytes = """<!doctype html>
   </div>
 
   <div class="grid-hosts" id="hosts"></div>
+
+  <section class="audit">
+    <h2>Recent Actions</h2>
+    <div id="auditWrap"><div class="empty">loading…</div></div>
+  </section>
+</div>
+
+<div class="modal-backdrop" id="testModal">
+  <div class="modal" style="min-width:560px; max-width:720px;">
+    <h2 class="test">Inference test</h2>
+    <p>Send a prompt to <code id="testModalModel"></code> on <code id="testModalHost"></code>. Reports response + eval throughput (tok/s) and total latency.</p>
+    <div class="field">
+      <label class="fieldlabel" for="testModalPrompt">prompt (blank = default "say hi")</label>
+      <textarea id="testModalPrompt" class="test-prompt" placeholder="Say hi in one short sentence." spellcheck="false"></textarea>
+    </div>
+    <div id="testModalResultWrap" style="display:none;">
+      <div class="test-result" id="testModalResult"></div>
+    </div>
+    <div class="modal-actions">
+      <button id="testModalCancel">Close</button>
+      <button id="testModalRun" class="primary">Run</button>
+    </div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="loadModal">
@@ -430,8 +472,11 @@ function renderLoadedRow(host, m) {
     metaCell.appendChild(document.createTextNode('until ' + new Date(m.expires_at).toLocaleString()));
   }
   const actions = el('div', { className: 'actions' });
+  const testBtn = el('button', { className: 'primary', text: 'Test', title: 'Send a test prompt, see tokens/sec' });
+  testBtn.addEventListener('click', () => promptInferenceTest(host, m.name));
   const unloadBtn = el('button', { text: 'Unload' });
   unloadBtn.addEventListener('click', () => doUnload(host, m.name));
+  actions.appendChild(testBtn);
   actions.appendChild(unloadBtn);
   row.appendChild(nameCell);
   row.appendChild(metaCell);
@@ -456,6 +501,127 @@ function renderInstalledRow(host, m) {
   row.appendChild(metaCell);
   row.appendChild(actions);
   return row;
+}
+
+function promptInferenceTest(host, model) {
+  const modal = document.getElementById('testModal');
+  document.getElementById('testModalModel').textContent = model;
+  document.getElementById('testModalHost').textContent = host;
+  const promptBox = document.getElementById('testModalPrompt');
+  const resultWrap = document.getElementById('testModalResultWrap');
+  const result = document.getElementById('testModalResult');
+  const runBtn = document.getElementById('testModalRun');
+  promptBox.value = '';
+  resultWrap.style.display = 'none';
+  result.textContent = '';
+  result.style.color = '';
+  runBtn.disabled = false;
+  runBtn.textContent = 'Run';
+  document.getElementById('testModalCancel').onclick = () => modal.classList.remove('show');
+  runBtn.onclick = async () => {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running…';
+    resultWrap.style.display = 'block';
+    result.textContent = 'sending prompt…';
+    const t0 = performance.now();
+    try {
+      const r = await api('POST', '/api/models/' + host + '/test', {
+        model, prompt: promptBox.value.trim(),
+      });
+      const wallMs = Math.round(performance.now() - t0);
+      // Build result via textContent to avoid XSS from model output
+      result.textContent = '';
+      const line = (label, value, cls) => {
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(label + ': '));
+        const span = document.createElement('span');
+        span.className = 'stat' + (cls ? ' ' + cls : '');
+        span.textContent = value;
+        d.appendChild(span);
+        result.appendChild(d);
+      };
+      const tps = r.eval_tokens_per_sec || 0;
+      // Heuristic: <10 tok/s on any 14B model is almost certainly CPU
+      // fallback. Mark slow throughput red so GPU-fell-back regressions
+      // pop out at a glance.
+      const tpsClass = tps >= 25 ? 'good' : tps >= 8 ? '' : 'bad';
+      line('eval', tps.toFixed(2) + ' tok/s', tpsClass);
+      line('eval_count', r.eval_count + ' tokens');
+      line('prompt_eval', r.prompt_eval_count + ' tokens');
+      line('total', r.total_duration_ms + ' ms (wall ' + wallMs + ' ms)');
+      const pre = document.createElement('pre');
+      pre.textContent = r.response || '(empty response)';
+      result.appendChild(pre);
+    } catch (e) {
+      result.textContent = 'failed: ' + e.message;
+      result.style.color = 'var(--bad)';
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run again';
+      // Refresh audit panel whether the test succeeded or failed —
+      // backend records both, and the 30s poll would otherwise hide
+      // the entry from the user.
+      loadAudit();
+    }
+  };
+  modal.classList.add('show');
+  promptBox.focus();
+}
+
+async function loadAudit() {
+  const wrap = document.getElementById('auditWrap');
+  let data;
+  try {
+    data = await api('GET', '/api/audit');
+  } catch (e) {
+    wrap.textContent = '';
+    wrap.appendChild(el('div', { className: 'err', text: 'audit load failed: ' + e.message }));
+    return;
+  }
+  const entries = (data.entries || []).slice().reverse(); // newest first
+  wrap.textContent = '';
+  if (entries.length === 0) {
+    wrap.appendChild(el('div', { className: 'empty', text: 'no actions logged yet' }));
+    return;
+  }
+  const table = el('table', { className: 'audit-table' });
+  const thead = el('thead', {
+    children: [el('tr', {
+      children: ['Time', 'Action', 'Host', 'Model', 'User', 'Detail'].map(h => el('th', { text: h })),
+    })],
+  });
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  // Cap to most recent 80 in UI so the panel doesn't get unwieldy.
+  for (const e of entries.slice(0, 80)) {
+    const tr = document.createElement('tr');
+    tr.className = e.status || '';
+    const tsCell = el('td', { className: 'ts', text: e.ts ? new Date(e.ts).toLocaleString() : '?' });
+    const actCell = el('td', { className: 'action', text: e.action || '?' });
+    const hostCell = el('td', { className: 'host' + (e.host === 'kaydanski' ? ' kaydanski' : ''), text: e.host || '' });
+    const modelCell = el('td', { text: e.model || '' });
+    const userCell = el('td', { text: e.user || '' });
+    // Detail combines error (on fail) + a compact view of extras
+    let detail = '';
+    if (e.error) detail = e.error;
+    else {
+      const extras = [];
+      if (e.eval_tps != null) extras.push(e.eval_tps + ' tok/s');
+      if (e.eval_count != null) extras.push(e.eval_count + ' toks');
+      if (e.keep_alive) extras.push('ka=' + e.keep_alive);
+      if (e.strict_gpu === true) extras.push('strict-gpu');
+      if (e.last_status) extras.push(e.last_status);
+      if (e.chat_count != null) extras.push('chat=' + e.chat_count + ' embed=' + (e.embed_count != null ? e.embed_count : 0));
+      if (e.env_keys) extras.push('keys=' + e.env_keys.join(','));
+      detail = extras.join(' · ');
+    }
+    const detailCell = el('td', { className: 'detail', text: detail });
+    tr.appendChild(tsCell); tr.appendChild(actCell); tr.appendChild(hostCell);
+    tr.appendChild(modelCell); tr.appendChild(userCell); tr.appendChild(detailCell);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
 }
 
 function promptLoad(host, model) {
@@ -488,6 +654,7 @@ async function doLoad(host, model, opts) {
     toast(host + ' load failed: ' + e.message, 'err');
   }
   refreshHost(host).then(render);
+  loadAudit();
 }
 
 async function doUnload(host, model) {
@@ -498,6 +665,7 @@ async function doUnload(host, model) {
     toast(host + ' unload failed: ' + e.message, 'err');
   }
   refreshHost(host).then(render);
+  loadAudit();
 }
 
 function promptDelete(host, model) {
@@ -517,6 +685,8 @@ function promptDelete(host, model) {
       refreshHost(host).then(render);
     } catch (e) {
       toast(host + ' delete failed: ' + e.message, 'err');
+    } finally {
+      loadAudit();
     }
   };
   document.getElementById('modalCancel').onclick = hideModal;
@@ -576,13 +746,14 @@ async function doPull(host, model, container) {
             log.textContent = msg;
             log.style.color = 'var(--bad)';
             toast(host + ' pull error: ' + msg, 'err');
+            loadAudit();
             return;
           }
           if (event === 'done') {
             log.textContent = 'done: ' + (evt.status || 'success');
             log.style.color = 'var(--good)';
             bar.style.width = '100%';
-            setTimeout(() => refreshHost(host).then(render), 600);
+            setTimeout(() => { refreshHost(host).then(render); loadAudit(); }, 600);
             return;
           }
           const total = evt.total || 0;
@@ -603,6 +774,7 @@ async function doPull(host, model, container) {
     log.textContent = 'pull failed: ' + e.message;
     log.style.color = 'var(--bad)';
     toast(host + ' pull failed: ' + e.message, 'err');
+    loadAudit();
   }
 }
 
@@ -615,6 +787,7 @@ async function saveWarmSet(host, ws) {
     toast(host + ' warm-set save failed: ' + e.message, 'err');
   }
   render();
+  loadAudit();
 }
 
 async function saveEnvKey(host, key, value) {
@@ -629,6 +802,7 @@ async function saveEnvKey(host, key, value) {
     toast(host + ' env save failed: ' + e.message, 'err');
   }
   render();
+  loadAudit();
 }
 
 async function doRestart(host) {
@@ -639,11 +813,15 @@ async function doRestart(host) {
   } catch (e) {
     toast(host + ' restart failed: ' + e.message, 'err');
   }
-  setTimeout(() => refreshHost(host).then(render), 3000);
+  setTimeout(() => { refreshHost(host).then(render); loadAudit(); }, 3000);
 }
 
 // Initial load + 10s refresh of ps + tags (skipping env + warm-set which are SSH-bound)
 loadAll();
+loadAudit();
+// Audit log polls on its own slower cadence — it's append-only and
+// changes only when a user fires a write action, so 30s is plenty.
+setInterval(loadAudit, 30000);
 let refreshErrorStreak = 0;
 setInterval(async () => {
   for (const h of hosts) {

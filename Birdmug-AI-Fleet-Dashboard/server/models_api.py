@@ -239,6 +239,75 @@ def unload_model(alias: str):
 
 
 # ---------------------------------------------------------------------------
+# Inference test (Phase 2b — added 2026-05-21)
+# ---------------------------------------------------------------------------
+
+
+@bp.post("/models/<alias>/test")
+@require_auth
+def test_model(alias: str):
+    """Run a single prompt against a loaded model + report throughput.
+
+    Distinguishes 'model loaded' from 'model working' — surfaces the
+    GPU-fell-back-to-CPU regression that `/api/ps` alone can hide.
+    Returns prompt + response token counts, total duration, eval
+    duration, and eval tokens/sec. No streaming (we want timing
+    metrics, not progressive UI).
+    """
+    spec, err = _require_host(alias)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    model = body.get("model")
+    prompt = body.get("prompt") or ""
+    if not model:
+        return jsonify({"error": "missing 'model'"}), 400
+    if not isinstance(prompt, str) or len(prompt) > 4096:
+        return jsonify({"error": "'prompt' must be a string up to 4096 chars"}), 400
+    # Default to a small fast prompt if blank
+    if not prompt.strip():
+        prompt = "Say hi in one short sentence."
+    user = _user_for_audit()
+    try:
+        # keep_alive omitted -> Ollama uses service default; we don't
+        # want to alter the model's residence policy as a side effect
+        # of testing it.
+        r = requests.post(
+            f"{spec.ollama_url}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False},
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except requests.RequestException as e:
+        msg = _ollama_error_message(e)
+        audit_record("test", host=alias, model=model, user=user, status="fail", error=msg)
+        return jsonify({"error": "ollama_error", "host": alias, "detail": msg}), 502
+
+    # Ollama returns nanosecond durations; convert to ms and tok/s.
+    eval_count = data.get("eval_count") or 0
+    eval_duration_ns = data.get("eval_duration") or 0
+    total_duration_ns = data.get("total_duration") or 0
+    prompt_eval_count = data.get("prompt_eval_count") or 0
+    eval_tps = (eval_count * 1e9 / eval_duration_ns) if eval_duration_ns > 0 else 0.0
+    summary = {
+        "model": model,
+        "response": data.get("response", ""),
+        "eval_count": eval_count,
+        "prompt_eval_count": prompt_eval_count,
+        "eval_duration_ms": eval_duration_ns // 1_000_000,
+        "total_duration_ms": total_duration_ns // 1_000_000,
+        "eval_tokens_per_sec": round(eval_tps, 2),
+    }
+    audit_record(
+        "test", host=alias, model=model, user=user, status="ok",
+        eval_tps=summary["eval_tokens_per_sec"],
+        eval_count=eval_count,
+    )
+    return jsonify(summary)
+
+
+# ---------------------------------------------------------------------------
 # Pull / Delete (Phase 3)
 # ---------------------------------------------------------------------------
 

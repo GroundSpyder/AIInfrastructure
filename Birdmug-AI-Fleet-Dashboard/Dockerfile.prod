@@ -21,7 +21,8 @@ RUN mkdir -p /data
 
 # Pre-create the SSH dir so the mounted key inherits sane perms. The
 # host-side mount in docker-compose.prod.yml is read-only.
-RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+# /tmp/ssh-cm holds ControlMaster sockets (see server/fleet_ssh.py).
+RUN mkdir -p /root/.ssh /tmp/ssh-cm && chmod 700 /root/.ssh /tmp/ssh-cm
 
 EXPOSE 8794
 

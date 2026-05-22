@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Wrapper for orthos_comm.py. Add this file (or its directory) to PATH.
+# The wrapper resolves orthos_comm.py via its own location.
+set -euo pipefail
+# Resolve symlinks so the wrapper can be linked into /usr/local/bin while the
+# real install lives elsewhere.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    SOURCE="$(readlink "$SOURCE")"
+    case "$SOURCE" in /*) ;; *) SOURCE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$SOURCE" ;; esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+ORTHOS_COMM_PY="$SCRIPT_DIR/orthos_comm.py"
+if [ ! -f "$ORTHOS_COMM_PY" ]; then
+    echo "orthos-comm: cannot find orthos_comm.py next to this wrapper at $ORTHOS_COMM_PY" >&2
+    exit 2
+fi
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 "$ORTHOS_COMM_PY" "$@"
+fi
+exec python "$ORTHOS_COMM_PY" "$@"

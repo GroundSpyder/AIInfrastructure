@@ -130,8 +130,28 @@ entries required in `~/toshi-infra/deploy/deploy.sh`:
 | Host path | Container path | Mode | Purpose |
 |---|---|---|---|
 | `/home/falkensteink/.ssh/id_ed25519` | `/root/.ssh/id_ed25519` | ro | SSH key for MB + Kaydanski control |
-| `/home/falkensteink/.ssh/known_hosts` | `/root/.ssh/known_hosts` | ro | Avoid first-use prompt; allow strict checking once cached |
 | named volume `ai_fleet_audit_data` | `/data` | rw | Audit log (`fleet_audit.log`) — survives rebuilds |
+
+> Not mounted: `known_hosts`. The container's `/root/.ssh/known_hosts`
+> is populated on first SSH via `StrictHostKeyChecking=accept-new` and
+> rebuilt fresh on each container start. Intentional — avoids a writable
+> host-file mount surface; LAN trust between Toshi and MB/Kaydanski is
+> the protection (see `server/fleet_ssh.py` comment).
+
+## SSH ControlMaster (in-container)
+
+The container creates `/tmp/ssh-cm` at image-build time (see
+`Dockerfile.prod` lines 24-25) and `server/fleet_ssh.py` runs every
+outbound SSH call with `-o ControlMaster=auto -o
+ControlPath=/tmp/ssh-cm/%r@%h:%p -o ControlPersist=600`. Effect: the
+first call to a host pays the full TCP + handshake cost (~300-600 ms),
+subsequent calls within 10 min reuse the multiplexed connection
+(~5-20 ms). Big deal for the model-management GUI, which fires several
+short `nssm get` / warm-set reads back-to-back per page load.
+
+The directory is intentionally **not** a volume mount — sockets are
+ephemeral, recreated on container restart, and tied to the container's
+SSH client identity. Don't add `/tmp/ssh-cm` to the volumes table.
 
 ## Port binding
 
@@ -153,6 +173,7 @@ LAN consumers — every external reach is through the tunnel.
 | POST   | `/api/models/<host>/show`                  | yes | Model details |
 | POST   | `/api/models/<host>/load`                  | yes | Warm into VRAM (`{model, strict_gpu, keep_alive}`) |
 | POST   | `/api/models/<host>/unload`                | yes | Evict (`{model}`, sets `keep_alive=0s`) |
+| POST   | `/api/models/<host>/test`                  | yes | Inference smoke test — runs a single short `/api/generate` against the model, returns latency + token count (audit-logged) |
 | POST   | `/api/models/<host>/pull`                  | yes | Pull new — streams SSE progress |
 | DELETE | `/api/models/<host>/delete`                | yes | Delete — requires `{model, confirm_name: <same>}` |
 | GET    | `/api/models/<host>/env`                   | yes | NSSM AppEnvironmentExtra (via SSH) |

@@ -1,0 +1,131 @@
+{
+  "id": "bcd01",
+  "name": "botchat-daily-digest",
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 9 * * *" }
+          ]
+        }
+      },
+      "id": "11111111-dddd-eeee-ffff-000000000001",
+      "name": "Daily 09:00 CT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 24h-window digest. Independent state from urgent-relay — we pull the last 24h of\n// chris-bot posts and summarize the FYI ones (no @kyle-bot mention).\nconst nowMs = Date.now();\nconst sinceMs = nowMs - 24 * 60 * 60 * 1000;\nreturn [{ json: {\n  sinceMs,\n  nowMs,\n  channelId: 'qoia7dfowb8q9n16ukkidb874c',\n  chrisBotUserId: 'b5jiw3sk13rbibcbt4t98gf1ra',\n  dmChannelId: 'cqhn533i8tnszryak11ysnkj3r',\n  mattermostBase: 'https://chat.birdmug.com/api/v4',\n  ollamaUrl: 'http://100.83.51.117:11434/api/generate',\n  ollamaModel: 'qwen2.5:7b'\n} }];"
+      },
+      "id": "22222222-dddd-eeee-ffff-000000000002",
+      "name": "Compute Window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.mattermostBase }}/channels/{{ $json.channelId }}/posts?since={{ $json.sinceMs }}&per_page=200",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.MATTERMOST_KYLE_BOT_TOKEN }}" },
+            { "name": "User-Agent", "value": "botchat-daily-digest-n8n/0.1" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "33333333-dddd-eeee-ffff-000000000003",
+      "name": "Fetch 24h Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect FYI chris-bot posts (no @kyle-bot mention, non-system) into a digestable blob.\nconst ctx = $('Compute Window').first().json;\nconst apiResp = $json;\n\nif (apiResp && apiResp.error) {\n  throw new Error('Mattermost API error fetching 24h posts: ' + JSON.stringify(apiResp.error));\n}\nif (!apiResp || !('order' in apiResp) || !('posts' in apiResp)) {\n  throw new Error('Mattermost response missing expected keys (got ' + Object.keys(apiResp || {}).join(',') + ')');\n}\n\nconst order = Array.isArray(apiResp.order) ? apiResp.order : [];\nconst posts = apiResp.posts || {};\nconst chronological = [...order].reverse();\n\nconst fyi = [];\nfor (const pid of chronological) {\n  const p = posts[pid];\n  if (!p) continue;\n  if (p.user_id !== ctx.chrisBotUserId) continue;\n  if (p.type && p.type !== '') continue;\n  const msg = (p.message || '').toString();\n  if (msg.includes('@kyle-bot')) continue; // urgent posts already went via urgent-relay\n  fyi.push({\n    create_at: p.create_at,\n    iso: new Date(p.create_at).toISOString().slice(0, 16).replace('T', ' '),\n    message: msg\n  });\n}\n\n// If no FYI traffic at all, skip the entire downstream — return empty\nif (fyi.length === 0) {\n  return [];\n}\n\nconst joined = fyi.map(f => `[${f.iso} UTC]\\n${f.message}`).join('\\n\\n---\\n\\n');\nconst prompt = `You summarize one day of FYI / status posts from \"chris-bot\" (an AI assistant Chris uses) into a brief digest for Kyle. The posts below are NOT directed asks — those went through a separate urgent-relay. These are status updates, FYIs, broadcasts.\n\nRules:\n- 2-4 short sentences, plain prose, no markdown headers, no bullet lists.\n- Lead with the most actionable or surprising item.\n- If the posts are mundane (no signal), say so in one sentence.\n- Don't hallucinate — only summarize what's actually in the posts.\n- No sign-off, no \"hope this helps,\" terse.\n\nPosts (${fyi.length} total in last 24h):\n\n${joined}\n\nSummary:`;\n\nreturn [{ json: {\n  prompt,\n  fyiCount: fyi.length,\n  oldestIso: fyi[0].iso,\n  newestIso: fyi[fyi.length - 1].iso,\n  ollamaUrl: ctx.ollamaUrl,\n  ollamaModel: ctx.ollamaModel,\n  mattermostBase: ctx.mattermostBase,\n  dmChannelId: ctx.dmChannelId\n} }];"
+      },
+      "id": "44444444-dddd-eeee-ffff-000000000004",
+      "name": "Build Digest Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.ollamaUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": {{ JSON.stringify($json.ollamaModel) }},\n  \"prompt\": {{ JSON.stringify($json.prompt) }},\n  \"stream\": false,\n  \"options\": { \"temperature\": 0.2, \"num_predict\": 400 }\n}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "55555555-dddd-eeee-ffff-000000000005",
+      "name": "Call Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine narrative + raw count, fall back to static if Ollama unreachable.\nconst prior = $('Build Digest Prompt').first().json;\nconst ollamaOut = $json;\nconst narrative = (ollamaOut && typeof ollamaOut.response === 'string' && ollamaOut.response.trim())\n  ? ollamaOut.response.trim()\n  : null;\nconst ollamaFailed = !narrative;\n\nlet text;\nif (narrative) {\n  text = `:scroll: **chris-bot 24h digest** (${prior.fyiCount} FYI post${prior.fyiCount === 1 ? '' : 's'}, ${prior.oldestIso}–${prior.newestIso} UTC)\\n\\n${narrative}\\n\\nDirected asks went via urgent-relay DMs in the same window.`;\n} else {\n  text = `:scroll: **chris-bot 24h digest** (${prior.fyiCount} FYI post${prior.fyiCount === 1 ? '' : 's'}, ${prior.oldestIso}–${prior.newestIso} UTC)\\n\\n_Ollama at Kaydanski was unreachable — count only, no narrative._\\n\\nRun \\`botchat read --all\\` from any host to see the underlying posts.`;\n}\n\nreturn [{ json: {\n  text,\n  ollamaOk: !ollamaFailed,\n  mattermostBase: prior.mattermostBase,\n  dmChannelId: prior.dmChannelId\n} }];"
+      },
+      "id": "66666666-dddd-eeee-ffff-000000000006",
+      "name": "Format Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.mattermostBase }}/posts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.MATTERMOST_KYLE_BOT_TOKEN }}" },
+            { "name": "User-Agent", "value": "botchat-daily-digest-n8n/0.1" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel_id\": {{ JSON.stringify($json.dmChannelId) }},\n  \"message\": {{ JSON.stringify($json.text) }}\n}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "77777777-dddd-eeee-ffff-000000000007",
+      "name": "DM Digest to Kyle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1840, 300]
+    }
+  ],
+  "connections": {
+    "Daily 09:00 CT": {
+      "main": [[{ "node": "Compute Window", "type": "main", "index": 0 }]]
+    },
+    "Compute Window": {
+      "main": [[{ "node": "Fetch 24h Posts", "type": "main", "index": 0 }]]
+    },
+    "Fetch 24h Posts": {
+      "main": [[{ "node": "Build Digest Prompt", "type": "main", "index": 0 }]]
+    },
+    "Build Digest Prompt": {
+      "main": [[{ "node": "Call Ollama", "type": "main", "index": 0 }]]
+    },
+    "Call Ollama": {
+      "main": [[{ "node": "Format Digest", "type": "main", "index": 0 }]]
+    },
+    "Format Digest": {
+      "main": [[{ "node": "DM Digest to Kyle", "type": "main", "index": 0 }]]
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "id": "bcr01",
+  "name": "botchat-urgent-relay",
+  "active": true,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 5 }
+          ]
+        }
+      },
+      "id": "11111111-aaaa-bbbb-cccc-000000000001",
+      "name": "Every 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read persistent cursor (workflow-static data). On first run, default to (now - 6min)\n// to give a 1-min overlap with the schedule (5 min) so a late tick doesn't miss anything.\nconst staticData = $getWorkflowStaticData('global');\nconst nowMs = Date.now();\nconst defaultSinceMs = nowMs - 6 * 60 * 1000;\nconst sinceMs = (typeof staticData.lastSeenMs === 'number' && staticData.lastSeenMs > 0)\n  ? staticData.lastSeenMs\n  : defaultSinceMs;\nreturn [{ json: {\n  sinceMs,\n  nowMs,\n  channelId: 'qoia7dfowb8q9n16ukkidb874c',\n  chrisBotUserId: 'b5jiw3sk13rbibcbt4t98gf1ra',\n  dmChannelId: 'cqhn533i8tnszryak11ysnkj3r',\n  mattermostBase: 'https://chat.birdmug.com/api/v4'\n} }];"
+      },
+      "id": "22222222-aaaa-bbbb-cccc-000000000002",
+      "name": "Compute Cursor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.mattermostBase }}/channels/{{ $json.channelId }}/posts?since={{ $json.sinceMs }}&per_page=200",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.MATTERMOST_KYLE_BOT_TOKEN }}" },
+            { "name": "User-Agent", "value": "botchat-urgent-relay-n8n/0.1" }
+          ]
+        },
+        "options": { "timeout": 15000, "response": { "response": { "fullResponse": false } } }
+      },
+      "id": "33333333-aaaa-bbbb-cccc-000000000003",
+      "name": "Fetch New Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter to *new chris-bot posts that @-mention kyle-bot*, advance cursor.\nconst staticData = $getWorkflowStaticData('global');\nconst ctx = $('Compute Cursor').first().json;\n\nconst apiResp = $json;\n// HTTPError surface — if HTTP errored, $json may be the error envelope; refuse to silently treat as empty.\nif (apiResp && apiResp.error) {\n  throw new Error('Mattermost API error fetching channel posts: ' + JSON.stringify(apiResp.error));\n}\nif (!apiResp || !('order' in apiResp) || !('posts' in apiResp)) {\n  throw new Error('Mattermost response missing expected keys (got ' + Object.keys(apiResp || {}).join(',') + ')');\n}\n\nconst order = Array.isArray(apiResp.order) ? apiResp.order : [];\nconst posts = apiResp.posts || {};\n\n// Walk in chronological order so the cursor advance is monotonic.\nconst chronological = [...order].reverse();\nlet maxCreate = ctx.sinceMs;\nconst urgent = [];\n\nfor (const pid of chronological) {\n  const p = posts[pid];\n  if (!p) continue;\n  if (p.create_at <= ctx.sinceMs) continue; // safety: belt-and-suspenders since the query already filters\n  if (p.create_at > maxCreate) maxCreate = p.create_at;\n\n  // Only care about chris-bot's posts\n  if (p.user_id !== ctx.chrisBotUserId) continue;\n  // Skip system messages (joined/left etc.)\n  if (p.type && p.type !== '') continue;\n  // Must @-mention kyle-bot\n  const msg = (p.message || '').toString();\n  if (!msg.includes('@kyle-bot')) continue;\n\n  urgent.push({\n    post_id: p.id,\n    create_at: p.create_at,\n    message: msg,\n    excerpt: msg.length > 280 ? msg.slice(0, 277) + '…' : msg,\n    permalink: 'https://chat.birdmug.com/birdmugcom/channels/orthos?postid=' + p.id,\n    dmChannelId: ctx.dmChannelId,\n    mattermostBase: ctx.mattermostBase\n  });\n}\n\n// Advance cursor regardless — we've seen everything up to maxCreate, urgent or not.\nstaticData.lastSeenMs = maxCreate;\n\nreturn urgent.length\n  ? urgent.map(u => ({ json: u }))\n  : [];"
+      },
+      "id": "44444444-aaaa-bbbb-cccc-000000000004",
+      "name": "Filter Urgent Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.mattermostBase }}/posts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.MATTERMOST_KYLE_BOT_TOKEN }}" },
+            { "name": "User-Agent", "value": "botchat-urgent-relay-n8n/0.1" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel_id\": {{ JSON.stringify($json.dmChannelId) }},\n  \"message\": {{ JSON.stringify(':envelope_with_arrow: @chris-bot pinged you in #orthos\\n\\n> ' + $json.excerpt.replace(/\\n/g, '\\n> ') + '\\n\\nOpen any Claude Code session and run `/botchat` to handle, or click: ' + $json.permalink) }}\n}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "55555555-aaaa-bbbb-cccc-000000000005",
+      "name": "DM Kyle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 300],
+      "continueOnFail": false
+    }
+  ],
+  "connections": {
+    "Every 5 min": {
+      "main": [[{ "node": "Compute Cursor", "type": "main", "index": 0 }]]
+    },
+    "Compute Cursor": {
+      "main": [[{ "node": "Fetch New Posts", "type": "main", "index": 0 }]]
+    },
+    "Fetch New Posts": {
+      "main": [[{ "node": "Filter Urgent Posts", "type": "main", "index": 0 }]]
+    },
+    "Filter Urgent Posts": {
+      "main": [[{ "node": "DM Kyle", "type": "main", "index": 0 }]]
+    }
+  }
+}

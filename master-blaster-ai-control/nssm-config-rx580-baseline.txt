@@ -1,0 +1,51 @@
+# Master Blaster OllamaService NSSM config snapshot
+# Captured: 2026-05-19, pre-RX-9070-XT install
+# GPU at time of capture: RX 580 (Polaris, gfx803), Vulkan backend
+# Ollama version: 0.21.2
+#
+# To restore this exact state:
+#   nssm set OllamaService Application "C:\Users\kylej\AppData\Local\Programs\Ollama\ollama.exe"
+#   nssm set OllamaService AppDirectory "C:\Users\kylej\AppData\Local\Programs\Ollama"
+#   nssm set OllamaService AppParameters serve
+#   nssm set OllamaService AppEnvironmentExtra OLLAMA_HOST=0.0.0.0:11434 OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=2 OLLAMA_KEEP_ALIVE=30m OLLAMA_MODELS=C:\Users\kylej\.ollama\models OLLAMA_VULKAN=1 OLLAMA_LLM_LIBRARY=vulkan
+#   nssm restart OllamaService
+
+[Service]
+Application       = C:\Users\kylej\AppData\Local\Programs\Ollama\ollama.exe
+AppDirectory      = C:\Users\kylej\AppData\Local\Programs\Ollama
+AppParameters     = serve
+AppStdout         = C:\Users\kylej\ollama-logs\service-stdout.log
+AppStderr         = C:\Users\kylej\ollama-logs\service-stderr.log
+AppRotateFiles    = 1
+AppRotateBytes    = 10485760
+AppPriority       = 16384
+AppRestartDelay   = 2000
+ObjectName        = LocalSystem
+Start             = SERVICE_AUTO_START
+Type              = SERVICE_WIN32_OWN_PROCESS
+DisplayName       = Ollama (Master Blaster)
+Description       = Local Ollama for bge-m3 embeddings + qwen2.5:3b classification. Vulkan backend on RX 580.
+
+[AppEnvironmentExtra]
+OLLAMA_HOST              = 0.0.0.0:11434
+OLLAMA_MAX_LOADED_MODELS = 2
+OLLAMA_NUM_PARALLEL      = 2
+OLLAMA_KEEP_ALIVE        = 30m
+OLLAMA_MODELS            = C:\Users\kylej\.ollama\models
+OLLAMA_VULKAN            = 1
+OLLAMA_LLM_LIBRARY       = vulkan
+
+[ServiceBinding]
+Listening on  = 0.0.0.0:11434  (LAN-accessible at 192.168.4.33:11434)
+
+[InstalledModels]
+qwen2.5:3b      ~1.9 GB     chat / classifier
+bge-m3:latest   ~1.2 GB     embedding (F16)
+qwen2.5:7b      ~4.7 GB     pulled 2026-05-19 ahead of 9070 XT install (will be new warm-set chat)
+
+[NotesForMigration]
+- When swapping to ROCm on 9070 XT: REMOVE OLLAMA_VULKAN and OLLAMA_LLM_LIBRARY,
+  ADD ROCBLAS_TENSILE_LIBPATH=C:\Program Files\AMD\ROCm\7.1\bin\rocblas\library
+- Keep all other vars (HOST, MAX_LOADED_MODELS, NUM_PARALLEL, KEEP_ALIVE, MODELS)
+- LocalSystem account means the service can't see per-user PATH; HIP SDK libraries
+  must be referenced by absolute path in ROCBLAS_TENSILE_LIBPATH.

@@ -6,7 +6,11 @@ INDEX_HTML: bytes = b"""<!doctype html>
   <title>Orthos API Dashboard</title>
   <link rel="icon" href="/favicon.ico?v=orthos-20260511" sizes="any">
   <link rel="shortcut icon" href="/favicon.ico?v=orthos-20260511">
+  <script>(function(){if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');})();</script>
   <style>
+    /* AI Fleet Dashboard embeds this page in an iframe with ?embed=1.
+       Hide the page's own header in that case so only the outer chrome shows. */
+    html.embed > body > header { display:none; }
     :root { color-scheme: dark; --bg:#030303; --panel:#0b0b0c; --panel2:#141416; --line:#3a3a3d; --text:#f7f0e8; --muted:#9d9a96; --good:#25d58f; --bad:#ff2d16; --warn:#ff6a00; --blue:#f7f0e8; --ember:#ff3b14; --ash:#1d1f22; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(255, 45, 18, .30), transparent 31%), radial-gradient(circle at 82% -4%, rgba(255, 190, 24, .18), transparent 26%), linear-gradient(180deg, #070707, #020202 48%, #000); color:var(--text); }

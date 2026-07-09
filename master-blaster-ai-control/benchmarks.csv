@@ -1,0 +1,10 @@
+timestamp,gpu,backend,ollama_version,chat_model,chat_tok_per_sec,embed_model,embed_per_sec,notes
+2026-05-19 09:55,"Radeon RX 580 Series",Vulkan,0.21.2,qwen2.5:3b,29.32,bge-m3:latest,8.56,"Pre-9070XT baseline. 200 tok chat / batch of 10 embed."
+2026-05-19 10:03,"Radeon RX 580 Series",Vulkan,0.21.2,qwen2.5:3b,29.79,bge-m3:latest,9.24,"baseline validation run with warmup"
+2026-05-19 16:33,"AMD Radeon RX 9070 XT",Vulkan,0.21.2,qwen2.5:3b,164.2,bge-m3:latest,20.21,"post 9070 XT install, Vulkan, default warm set"
+2026-05-19 16:34,"AMD Radeon RX 9070 XT",Vulkan,0.21.2,qwen2.5:14b,33.28,,,"9070 XT Vulkan, 14b candidate shootout"
+2026-05-19 16:34,"AMD Radeon RX 9070 XT",Vulkan,0.21.2,qwen3:14b,44,,,"9070 XT Vulkan, 14b candidate shootout"
+2026-05-19 16:34,"AMD Radeon RX 9070 XT",Vulkan,0.21.2,phi4:14b,50.98,,,"9070 XT Vulkan, 14b candidate shootout"
+2026-05-19 16:41,"AMD Radeon RX 9070 XT",ROCm,0.21.2,qwen2.5:14b,55.71,,,"9070 XT ROCm, HIP SDK 6.4"
+2026-05-19 16:42,"AMD Radeon RX 9070 XT",ROCm,0.21.2,qwen3:14b,52.6,,,"9070 XT ROCm, HIP SDK 6.4"
+2026-05-19 16:42,"AMD Radeon RX 9070 XT",ROCm,0.21.2,phi4:14b,55.77,,,"9070 XT ROCm, HIP SDK 6.4"

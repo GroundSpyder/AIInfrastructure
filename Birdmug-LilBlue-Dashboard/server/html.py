@@ -6,7 +6,11 @@ INDEX_HTML: bytes = """<!doctype html>
   <title>LilBlue Dashboard</title>
   <link rel="icon" href="/lilblue.png" sizes="any">
   <link rel="shortcut icon" href="/lilblue.png">
+  <script>(function(){if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');})();</script>
   <style>
+    /* AI Fleet Dashboard embeds this page in an iframe with ?embed=1.
+       Hide the page's own header in that case so only the outer chrome shows. */
+    html.embed > body > header { display:none; }
     :root { color-scheme: dark; --bg:#010608; --panel:#080d14; --panel2:#0d1520; --line:#1a2a3a; --text:#ddeeff; --muted:#6a8aaa; --good:#00d9a0; --bad:#ff3366; --warn:#ffaa00; --blue:#4db8ff; --lilblue:#1a9fff; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(26,159,255,.18), transparent 32%), radial-gradient(circle at 82% -4%, rgba(0,200,255,.12), transparent 28%), linear-gradient(180deg, #040810, #010305 48%, #000); color:var(--text); }

@@ -6,7 +6,11 @@ INDEX_HTML: bytes = """<!doctype html>
   <title>Reaper Dashboard</title>
   <link rel="icon" href="/reaper.png" sizes="any">
   <link rel="shortcut icon" href="/reaper.png">
+  <script>(function(){if(new URLSearchParams(location.search).has('embed'))document.documentElement.classList.add('embed');})();</script>
   <style>
+    /* AI Fleet Dashboard embeds this page in an iframe with ?embed=1.
+       Hide the page's own header in that case so only the outer chrome shows. */
+    html.embed > body > header { display:none; }
     :root { color-scheme: dark; --bg:#040104; --panel:#0a0205; --panel2:#100406; --line:#2a1018; --text:#ece0d8; --muted:#90606c; --good:#00d9a0; --bad:#ff3344; --warn:#ffaa00; --accent:#d3133b; --reaper-accent:#d3133b; --bone:#ecdfe1; }
     * { box-sizing:border-box; }
     body { margin:0; font-family:Segoe UI, system-ui, sans-serif; background:radial-gradient(circle at 18% -10%, rgba(211,19,59,.10), transparent 30%), radial-gradient(circle at 82% -4%, rgba(140,12,40,.06), transparent 26%), linear-gradient(180deg, #060204, #020102 48%, #000); color:var(--text); }

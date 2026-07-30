@@ -1,105 +1,65 @@
-# AI-Pause.ps1 - release Master Blaster's GPU for gaming
-# Unloads every model currently in Ollama's VRAM via keep_alive=0.
-# Service stays up; first request after pause will reload (slow).
+# AI-Pause.ps1 - release Master Blaster's GPU for gaming, and make it STICK.
+#
+# 2026-07-30 rewrite. The previous version unloaded models via keep_alive=0 and
+# left the service running, with a header comment conceding "first request after
+# pause will reload". That was the bug: the fleet gateway load-balances
+# fleet/embed onto this box and routes all of fleet/chat-quality here, so an
+# ordinary background embed job dragged ~9-11 GB back into VRAM within minutes,
+# mid-game. Unloading is not a gate.
+#
+# This version stops OllamaService and records a manual pause in the shared gate
+# state. A stopped service refuses connections, which additionally lets the
+# LiteLLM gateway cooldown this backend cleanly instead of hammering a half-alive
+# node (that failure mode produced 2,710 identical Bug Fairy reports).
+#
+# A manual pause outranks the automatic game watcher: Game-Watch.ps1 will not
+# auto-resume a pause it did not create. Release it with AI-Resume.
 
 $ErrorActionPreference = 'Stop'
-$OLLAMA = 'http://localhost:11434'
+. (Join-Path $PSScriptRoot 'GpuGate.ps1')
 
 function Write-Status($msg, $color = 'Cyan') {
     Write-Host "[AI-Pause] $msg" -ForegroundColor $color
 }
 
-Write-Status "Querying loaded models on $OLLAMA ..."
-
-try {
-    $ps = Invoke-RestMethod -Uri "$OLLAMA/api/ps" -TimeoutSec 5
-} catch {
-    Write-Status "FAILED: Ollama API not responding at $OLLAMA" 'Red'
-    $svc = Get-Service -Name 'OllamaService' -ErrorAction SilentlyContinue
-    if ($svc) { Write-Status "OllamaService status: $($svc.Status)" 'Yellow' }
-    Write-Status "Error: $($_.Exception.Message)" 'Red'
+if (-not (Enter-GateLock)) {
+    Write-Status 'Could not take the gate lock (another gate operation is in progress).' 'Red'
+    Write-Status 'Wait a few seconds and press Ctrl+Alt+P again.' 'Yellow'
     exit 1
 }
 
-if (-not $ps.models -or $ps.models.Count -eq 0) {
-    Write-Status "No models currently loaded. Nothing to do." 'Green'
-    exit 0
+try {
+
+$svc = Get-OllamaService
+if ($null -eq $svc) {
+    Write-Status 'OllamaService not found on this machine.' 'Red'
+    Write-GateLog 'manual pause requested but OllamaService is not installed' 'ERROR'
+    exit 1
 }
 
-Write-Status "Found $($ps.models.Count) loaded model(s):"
-foreach ($m in $ps.models) {
-    # Distinguish "field absent" (API drift) from "zero VRAM" (CPU-only).
-    if ($null -eq $m.PSObject.Properties['size_vram']) {
-        $vramDisplay = '?'
-    } else {
-        $vramDisplay = "$([math]::Round($m.size_vram / 1MB, 0)) MB"
-    }
-    Write-Host ("  - {0} ({1} VRAM)" -f $m.name, $vramDisplay)
+Write-Status 'Stopping OllamaService to release the GPU ...'
+
+# Stop-OllamaHard verifies the port is closed, so a $true here means the GPU is
+# genuinely free, not merely that the service reported Stopped.
+if (-not (Stop-OllamaHard)) {
+    Write-Status 'FAILED to release the GPU. Ollama may still be holding VRAM.' 'Red'
+    Write-Status 'Try running this as administrator, or check OllamaService.' 'Yellow'
+    # Do NOT record a pause we did not achieve. Claiming 'paused' here would tell
+    # the watcher the job is done and stop it from retrying.
+    Write-GateLog 'manual pause FAILED - GPU not released' 'ERROR'
+    Publish-GateState -State 'available' -Owner $script:OWNER_MANUAL `
+        -Reason 'manual pause failed, GPU still held' `
+        -Alert 'AI-Pause could not stop OllamaService. The GPU is still held.' | Out-Null
+    exit 1
 }
 
-$failures = @()
-foreach ($m in $ps.models) {
-    Write-Status "Unloading $($m.name) ..."
-    $body = @{ model = $m.name; keep_alive = 0 } | ConvertTo-Json -Compress
-    $unloaded = $false
+Set-GateState -State 'paused' -Owner $script:OWNER_MANUAL -Reason 'manual pause (hotkey)' | Out-Null
+Publish-GateState -State 'paused' -Owner $script:OWNER_MANUAL -Reason 'manual pause (hotkey)' | Out-Null
+Write-GateLog 'manual pause applied'
 
-    # Try /api/generate first (works for chat models and most embedding models)
-    try {
-        Invoke-RestMethod -Uri "$OLLAMA/api/generate" -Method Post -Body $body `
-            -ContentType 'application/json' -TimeoutSec 10 | Out-Null
-        $unloaded = $true
-    } catch {
-        $genErr = $_.Exception.Message
-        # Fallback: /api/embed for pure embedding models
-        try {
-            Invoke-RestMethod -Uri "$OLLAMA/api/embed" -Method Post -Body $body `
-                -ContentType 'application/json' -TimeoutSec 10 | Out-Null
-            $unloaded = $true
-        } catch {
-            $failures += [pscustomobject]@{ model = $m.name; gen = $genErr; embed = $_.Exception.Message }
-        }
-    }
-}
-
-# Ollama evicts asynchronously after the unload call returns; poll up to ~15 s
-# for an empty /api/ps. Empirically takes 3-5 s on this box for a 2.4 GB model.
-$deadline = (Get-Date).AddSeconds(15)
-$verify = $null
-while ((Get-Date) -lt $deadline) {
-    try {
-        $verify = Invoke-RestMethod -Uri "$OLLAMA/api/ps" -TimeoutSec 5
-    } catch {
-        Write-Status "Could not verify final state: $($_.Exception.Message)" 'Yellow'
-        exit 1
-    }
-    if (-not $verify.models -or $verify.models.Count -eq 0) { break }
-    Start-Sleep -Milliseconds 500
-}
-
-# Always surface per-model unload errors if any occurred - don't gate on verify
-# state, because Ollama can evict-anyway-on-timeout and mask the underlying
-# cause (auth, 500, OOM, malformed body).
-if ($failures.Count -gt 0) {
-    Write-Status "Unload errors detected (both endpoints failed):" 'Red'
-    foreach ($f in $failures) {
-        Write-Host "  $($f.model)" -ForegroundColor Red
-        Write-Host "    /api/generate: $($f.gen)"
-        Write-Host "    /api/embed:    $($f.embed)"
-    }
-}
-
-if ($verify.models -and $verify.models.Count -gt 0) {
-    Write-Status "WARNING: $($verify.models.Count) model(s) still loaded after 15 s poll:" 'Yellow'
-    foreach ($m in $verify.models) { Write-Host "  - $($m.name)" -ForegroundColor Yellow }
-    exit 2
-}
-
-if ($failures.Count -gt 0) {
-    # Verify says clean, but some unload calls errored - Ollama evicted anyway.
-    # Surface non-zero exit so cron / chained scripts can react.
-    Write-Status "Models evicted, but unload calls had errors (see above). GPU released." 'Yellow'
-    exit 3
-}
-
-Write-Status "All models unloaded. GPU released for gaming." 'Green'
+Write-Status 'GPU released for gaming. Pause will HOLD until you run AI-Resume.' 'Green'
 exit 0
+
+} finally {
+    Exit-GateLock
+}

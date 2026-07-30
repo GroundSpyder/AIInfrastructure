@@ -191,11 +191,21 @@ INDEX_HTML: bytes = """<!doctype html>
     }
     function renderStatus(s) {
       const up = s.status === 'up';
+      // 'away' is Master Blaster deliberately offline - the gaming gate stopped
+      // Ollama, or the box is powered down. That is a normal state, not a fault,
+      // so it renders amber-informational instead of red-alarming.
+      const away = s.status === 'away';
       const loaded = s.loaded || [];
       document.getElementById('updated').textContent = 'Auto-refresh every 10s - Updated ' + new Date().toLocaleTimeString();
-      document.getElementById('overall').innerHTML = up ? '<span class="good">Up</span>' : '<span class="bad">Down</span>';
+      document.getElementById('overall').innerHTML = up
+        ? '<span class="good">Up</span>'
+        : (away ? '<span class="warn">Away</span>' : '<span class="bad">Down</span>');
       if (up) {
         hideAlert();
+      } else if (away) {
+        showAlert('warn', 'Master Blaster is away',
+          (s.hint || 'This node is offline by design.') +
+          ' The fleet gateway is routing around it, so embeddings and chat continue on the other nodes.');
       } else {
         const err = s.error ? (typeof s.error === 'string' ? s.error : JSON.stringify(s.error)) : 'No error detail returned.';
         const looksLikeTimeout = /timed out|timeout|refused|unreachable|econnrefused|enetunreach|no route to host/i.test(err);

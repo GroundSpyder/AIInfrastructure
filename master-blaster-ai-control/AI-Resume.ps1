@@ -1,9 +1,65 @@
-# AI-Resume.ps1 - warm Master Blaster's default models back into VRAM
+# AI-Resume.ps1 - bring Master Blaster's Ollama back and warm the default models.
 # Run after closing a game; mirrors what Ollama would do lazily on first request,
 # but front-loads the slow load so the next real call is fast.
+#
+# 2026-07-30: now gate-aware. AI-Pause stops the service outright rather than
+# unloading models, so resuming has to start it again before warming. Refuses to
+# resume while a watched game is still running unless -Force is passed, because
+# Game-Watch.ps1 would only pause it again seconds later and the flapping would
+# cost a model load each time.
+#
+#   -Force   resume even if the gate is held by a running game (the watcher
+#            passes this when IT is the one releasing the gate)
+
+[CmdletBinding()]
+param([switch]$Force)
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'GpuGate.ps1')
 $OLLAMA = 'http://localhost:11434'
+
+if (-not (Enter-GateLock)) {
+    Write-Host '[AI-Resume] Could not take the gate lock (another gate operation is in progress). Try again.' -ForegroundColor Red
+    exit 1
+}
+
+try {
+
+# Ask whether a game is ACTUALLY running rather than trusting the gate's owner
+# field. The previous version refused only when owner was 'game', so the common
+# real-world sequence - pause by hand, play, then hit Ctrl+Alt+R out of habit -
+# sailed straight through and warmed ~11 GB into VRAM mid-session.
+$runningGame = Get-RunningGame
+if ($runningGame -ne '' -and -not $Force) {
+    if ($runningGame -eq '?unknown') {
+        Write-Host '[AI-Resume] Cannot determine whether a game is running (watchlist unreadable).' -ForegroundColor Yellow
+        Write-Host '[AI-Resume] Refusing to resume. Re-run with -Force to override.' -ForegroundColor Yellow
+        Write-GateLog 'manual resume refused, game state unknown'
+    } else {
+        Write-Host "[AI-Resume] '$runningGame' is running - resuming would take the GPU back mid-game." -ForegroundColor Yellow
+        Write-Host '[AI-Resume] Close the game, or re-run with -Force to override.' -ForegroundColor Yellow
+        Write-GateLog "manual resume refused, '$runningGame' still running"
+    }
+    exit 4
+}
+
+# The service is stopped whenever the gate is engaged, so start it before we try
+# to talk to the API. Start-OllamaHard logs its own failures.
+$svcNow = Get-OllamaService
+if ($null -eq $svcNow) {
+    Write-Host '[AI-Resume] OllamaService is not installed on this machine.' -ForegroundColor Red
+    Write-GateLog 'resume failed: OllamaService not installed' 'ERROR'
+    exit 1
+}
+if ($svcNow.Status -ne 'Running') {
+    Write-Host '[AI-Resume] OllamaService is stopped, starting it ...' -ForegroundColor Cyan
+    if (-not (Start-OllamaHard)) {
+        Write-Host '[AI-Resume] FAILED to start OllamaService. Try running as administrator.' -ForegroundColor Red
+        exit 1
+    }
+    # Ollama needs a moment after the service reports Running before it binds.
+    Start-Sleep -Seconds 3
+}
 
 # Default warm set for Master Blaster (RX 9070 XT / 16 GB VRAM / Vulkan).
 # Picked 2026-05-19 after benching qwen2.5:14b (33 t/s), qwen3:14b (44 t/s),
@@ -55,31 +111,20 @@ function Write-Status($msg, $color = 'Cyan') {
 
 Write-Status "Pre-warming default models on Master Blaster ..."
 
-# Sanity check - is Ollama responding?
-try {
-    Invoke-RestMethod -Uri "$OLLAMA/api/version" -TimeoutSec 5 | Out-Null
-} catch {
-    Write-Status "FAILED: Ollama API not responding at $OLLAMA" 'Red'
-    $svc = Get-Service -Name 'OllamaService' -ErrorAction SilentlyContinue
-    if ($svc) {
-        Write-Status "OllamaService status: $($svc.Status)" 'Yellow'
-        if ($svc.Status -ne 'Running') {
-            Write-Status "Attempting to start OllamaService ..." 'Yellow'
-            try {
-                Start-Service -Name 'OllamaService' -ErrorAction Stop
-                Start-Sleep -Seconds 3
-                Write-Status "Service started, retrying ..." 'Yellow'
-                Invoke-RestMethod -Uri "$OLLAMA/api/version" -TimeoutSec 10 | Out-Null
-            } catch {
-                Write-Status "Could not start OllamaService: $($_.Exception.Message)" 'Red'
-                exit 1
-            }
-        } else {
-            Write-Status "Service is Running but API not responding. Check logs." 'Red'
-            exit 1
-        }
-    } else {
-        Write-Status "OllamaService not found." 'Red'
+# Sanity check - is Ollama responding? The service-start path above already ran,
+# so this is a liveness retry, not a second place to start services. The previous
+# version called raw Start-Service here with no gate awareness at all, which meant
+# this branch could bring Ollama back regardless of what the gate said.
+if (-not (Test-OllamaResponding -TimeoutSec 5)) {
+    Write-Status "Ollama API not responding yet at $OLLAMA, waiting ..." 'Yellow'
+    $alive = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Seconds 2
+        if (Test-OllamaResponding -TimeoutSec 3) { $alive = $true; break }
+    }
+    if (-not $alive) {
+        Write-Status 'Service is Running but the API never responded. Check OllamaService logs.' 'Red'
+        Write-GateLog 'resume failed: service Running but API never responded' 'ERROR'
         exit 1
     }
 }
@@ -98,8 +143,24 @@ function Test-ConnectionDown($exception) {
 $failures = @()
 $serviceDied = $false
 
+# Warming is the slowest part of the whole gate (up to ~120 s per model). A game
+# launched during it would otherwise get a fully-loaded GPU for minutes, so we
+# re-check between models and bail out rather than finishing the job.
+$abortedForGame = ''
+function Test-AbortForGame {
+    if ($script:ForceWarm) { return $false }
+    $g = Get-RunningGame
+    if ($g -ne '' -and $g -ne '?unknown') {
+        $script:abortedForGame = $g
+        return $true
+    }
+    return $false
+}
+$script:ForceWarm = [bool]$Force
+
 foreach ($model in $CHAT_MODELS) {
     if ($serviceDied) { break }
+    if (Test-AbortForGame) { break }
     Write-Status "Warming chat:  $model"
     $body = @{
         model      = $model
@@ -123,6 +184,7 @@ foreach ($model in $CHAT_MODELS) {
 
 foreach ($model in $EMBED_MODELS) {
     if ($serviceDied) { break }
+    if (Test-AbortForGame) { break }
     Write-Status "Warming embed: $model"
     $body = @{
         model      = $model
@@ -165,18 +227,45 @@ try {
     $verifyFailed = $true
 }
 
+if ($script:abortedForGame -ne '') {
+    # A game launched while we were warming. Hand the GPU straight back rather
+    # than leaving models resident, and let the watcher take it from here.
+    Write-Status "'$($script:abortedForGame)' launched during warm-up - releasing the GPU again." 'Yellow'
+    Write-GateLog "resume aborted mid-warm, '$($script:abortedForGame)' launched" 'WARN'
+    if (Stop-OllamaHard) {
+        Set-GateState -State 'paused' -Owner $script:OWNER_GAME `
+            -Reason "game launched during warm-up: $($script:abortedForGame)" `
+            -Game $script:abortedForGame | Out-Null
+    }
+    exit 4
+}
+
 if ($serviceDied) {
     Write-Status "Service died during warm-up - investigate OllamaService logs." 'Red'
+    Write-GateLog 'resume failed: service died during warm-up' 'ERROR'
     exit 1
 }
 if ($failures.Count -gt 0) {
     Write-Status "Some models failed to load: $($failures -join ', ')" 'Red'
+    # The service IS up, so the node can still serve the fleet even though the
+    # warm set is incomplete. Release the gate rather than stranding the node,
+    # but exit non-zero so callers and the log record the degraded state.
+    Set-GateState -State 'available' -Owner '' -Reason "resumed with warm failures: $($failures -join ', ')" | Out-Null
+    Write-GateLog "resume completed but these models failed to warm: $($failures -join ', ')" 'WARN'
     exit 1
 }
 if ($verifyFailed) {
     Write-Status "Warmed without errors but could NOT confirm models actually loaded." 'Red'
+    Write-GateLog 'resume could not verify loaded models' 'WARN'
     exit 1
 }
 
+Set-GateState -State 'available' -Owner '' -Reason 'resumed and warm' | Out-Null
+Write-GateLog 'resume complete, node available to the fleet'
 Write-Status "Ready." 'Green'
 exit 0
+
+} finally {
+    # Released on every exit path, including the `exit N` calls above.
+    Exit-GateLock
+}

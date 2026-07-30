@@ -1,0 +1,25 @@
+{
+  "_comment": "Process names (without .exe) that should take the GPU away from Ollama. Matching is case-insensitive. Trailing '*' works as a prefix wildcard, e.g. 'ShooterGame*'. Add to this list freely; Game-Watch.ps1 re-reads it every poll, so no restart is needed.",
+  "processes": [
+    "bg3",
+    "bg3_dx11",
+    "D2R",
+    "ShooterGame*",
+    "ArkAscended*",
+    "Diablo*",
+    "eldenring",
+    "Cyberpunk2077",
+    "helldivers2",
+    "FactoryGame*",
+    "Palworld*",
+    "RustClient",
+    "starfield",
+    "witcher3",
+    "hogwartslegacy",
+    "SatisfactoryClient"
+  ],
+  "launchers": {
+    "_comment": "Launchers alone do NOT pause the GPU - Steam idling in the tray should not cost you the fleet. Listed here only for the -Candidates helper output.",
+    "known": ["steam", "EpicGamesLauncher", "Battle.net", "GalaxyClient"]
+  }
+}

@@ -12,7 +12,7 @@ from flask import Flask, jsonify, make_response, request, send_file
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from server.auth import require_auth
-from server.bug_fairy import BugFairy
+from server.bug_fairy import BugFairy, mark_expected
 from server.html import INDEX_HTML
 from server import reaper
 from server.tracker import tracker
@@ -39,6 +39,45 @@ logging.basicConfig(
 
 _fairy.install_flask(app)
 
+_log = logging.getLogger(__name__)
+
+# Single definition lives in server.reaper so the API client and the HTTP layer
+# cannot drift on what "away" means.
+_is_node_away = reaper.is_node_away
+
+
+def _away_payload(detail: str) -> dict:
+    return {
+        "error": "reaper node is away",
+        "away": True,
+        "detail": detail,
+        "hint": reaper.AWAY_HINT,
+    }
+
+
+def _handle_away(exc, token, duration_ms, model):
+    """Shared response for "Master Blaster is not accepting connections".
+
+    Answers honestly with a 503 so the LiteLLM gateway cools this backend down
+    and fails over, but does not file a Bug Fairy report - see reaper.is_node_away
+    for why an expected absence must not use the error channel.
+
+    Only suppresses while the gate agrees this is a deliberate pause AND the
+    absence is inside the expected-gaming budget. Past that, status_payload()
+    reports "down" and we let it through to Bug Fairy like any other fault.
+    """
+    tracker.finish(token, 503, duration_ms, model=model)
+    gate = reaper.get_gate_report()
+    expected = bool(gate and gate.get("state") == "paused")
+    if expected:
+        _log.info("reaper node away (gate confirms pause): %s", exc)
+        mark_expected("master blaster gated for gaming")
+    else:
+        # Unreachable with no gate confirmation is NOT expected. Report it.
+        _log.warning("reaper node unreachable with no gate confirmation: %s", exc)
+        _fairy.capture_exception(exc)
+    return jsonify(_away_payload(str(exc))), 503
+
 
 @app.route("/")
 @require_auth
@@ -59,9 +98,20 @@ def favicon():
 def api_status():
     try:
         payload = reaper.status_payload()
+        # "away" returns 200: this dashboard is working perfectly, it is just
+        # reporting that a remote node is deliberately offline. Returning 503
+        # here claimed the dashboard itself was broken and generated 1,688
+        # bogus reports for GET /api/status alone.
         status_code = 503 if payload.get("status") == "down" else 200
         return jsonify(payload), status_code
     except Exception as exc:
+        if reaper.is_node_away(exc):
+            return jsonify({
+                "status": "away",
+                "error": str(exc),
+                "hint": reaper.AWAY_HINT,
+                "ts": time.time(),
+            }), 200
         _fairy.capture_exception(exc)
         return jsonify({"status": "down", "error": str(exc), "ts": time.time()}), 503
 
@@ -82,8 +132,13 @@ def proxy_chat():
     body = request.get_data()
     try:
         req_data = json.loads(body) if body else {}
-    except Exception:
+    except Exception as exc:
+        # Do not swallow this. An unparseable body means the model attribution
+        # below silently becomes "", mis-attributing the request in the tracker
+        # and the performance panel. The sibling proxy routes already warn here;
+        # this one dropped it entirely.
         req_data = {}
+        _log.warning("proxy_chat: failed to parse JSON body (%d bytes): %s", len(body), exc)
     model = req_data.get("model", "")
     is_stream = req_data.get("stream", False)
 
@@ -143,6 +198,8 @@ def proxy_chat():
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             tracker.finish(token, 504, duration_ms, model=model)
             return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        if _is_node_away(exc):
+            return _handle_away(exc, token, duration_ms, model)
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
@@ -163,6 +220,14 @@ def proxy_models():
     except urllib.error.HTTPError as exc:
         return app.response_class(exc.read(), status=exc.code, content_type="application/json")
     except Exception as exc:
+        if _is_node_away(exc):
+            gate = reaper.get_gate_report()
+            if gate and gate.get("state") == "paused":
+                _log.info("reaper node away on /v1/models: %s", exc)
+                mark_expected("master blaster gated for gaming")
+                return jsonify(_away_payload(str(exc))), 503
+            _log.warning("reaper unreachable on /v1/models, no gate confirmation: %s", exc)
+        _fairy.capture_exception(exc)
         return jsonify({"error": str(exc)}), 503
 
 
@@ -233,6 +298,8 @@ def proxy_ollama_generate():
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             tracker.finish(token, 504, duration_ms, model=model)
             return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        if _is_node_away(exc):
+            return _handle_away(exc, token, duration_ms, model)
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
@@ -285,6 +352,8 @@ def proxy_ollama_embed():
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             tracker.finish(token, 504, duration_ms, model=model)
             return jsonify({"error": "upstream timeout", "detail": str(exc)}), 504
+        if _is_node_away(exc):
+            return _handle_away(exc, token, duration_ms, model)
         tracker.finish(token, 502, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": "upstream unreachable", "detail": str(exc)}), 502
@@ -293,6 +362,53 @@ def proxy_ollama_embed():
         tracker.finish(token, 500, duration_ms, model=model)
         _fairy.capture_exception(exc)
         return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/gate", methods=["POST"])
+def api_gate():
+    """Receive a gate heartbeat from Master Blaster's Game-Watch watcher.
+
+    Unauthenticated for the same reason the proxy routes are: this port is bound
+    LAN-only and the watcher runs as SYSTEM with no BirdMug-Auth token. The
+    payload carries no secrets and the worst a LAN actor can do is make the
+    dashboard say "away" - it cannot start, stop, or route anything.
+    """
+    try:
+        payload = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        payload = {}
+    state = str(payload.get("state", ""))
+    if state not in ("available", "paused"):
+        return jsonify({"error": "state must be 'available' or 'paused'"}), 400
+    entry = reaper.record_gate_state(payload)
+    _log.info("gate heartbeat: state=%s owner=%s game=%s",
+              entry["state"], entry["owner"], entry["game"])
+    return jsonify({"ok": True, "recorded": entry}), 200
+
+
+@app.route("/api/node-health")
+def api_node_health():
+    """Unauthenticated liveness view of Master Blaster, shaped for Uptime Kuma.
+
+    Returns 200 when the node is usable OR deliberately away for gaming, and 503
+    only when it is genuinely unreachable with no explanation.
+
+    Kuma's monitor 24 used to probe MB's Ollama port directly, which would have
+    gone red for the entire length of every gaming session once the GPU gate
+    landed - trading one kind of alert noise for another. Point that monitor
+    here instead.
+    """
+    payload = reaper.status_payload()
+    status = payload.get("status")
+    body = {
+        "node": "master-blaster",
+        "status": status,
+        "gate": reaper.get_gate_report(),
+    }
+    if status in ("up", "away"):
+        return jsonify(body), 200
+    body["detail"] = payload.get("detail") or payload.get("error")
+    return jsonify(body), 503
 
 
 @app.route("/health")

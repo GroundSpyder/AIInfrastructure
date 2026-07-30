@@ -1,35 +1,62 @@
 # Master Blaster AI Control
 
-Manual pause/resume scripts for Master Blaster's local Ollama instance. Used to release the GPU before launching a game (especially BG3) and warm models back up after.
+The **GPU gate**: Master Blaster is Kyle's gaming PC *and* a fleet AI node, and those two roles fight over a 16 GB card. This directory holds the automatic gate that stops Ollama while a game is running, plus the manual overrides.
 
-Master Blaster's role in the fleet: light-duty AI node — bge-m3 embeddings + qwen2.5:3b classifier. Service: `OllamaService`, listening on `127.0.0.1:11434` + `192.168.4.33:11434`.
+Service: `OllamaService`, listening on `127.0.0.1:11434` + `192.168.4.33:11434`. Fleet role: `fleet/chat-quality` (qwen3:14b, MB-only) and half of `fleet/embed` (bge-m3, load-balanced with Kaydanski).
+
+## Why the gate exists (2026-07-30)
+
+Kyle deleted the entire Ollama model store on 2026-07-09 because "it kept kicking on and wrecking my PC while I was playing games." He was right, and the old scripts could not have prevented it:
+
+1. **The fleet actively pulls this box into work.** The LiteLLM gateway load-balances `fleet/embed` across Kaydanski *and* Master Blaster with `simple-shuffle`, so every fleet embedding request is a coin flip that lands on the gaming GPU. `fleet/chat-quality` routes here exclusively and loads a ~9 GB model.
+2. **`OLLAMA_KEEP_ALIVE=30m`** means one stray request pins that VRAM for half an hour.
+3. **The old `AI-Pause.ps1` could not hold.** It unloaded models via `keep_alive=0` and left the service running. Its own header conceded "first request after pause will reload". The next coin-flip embed dragged the model straight back in, mid-game.
+4. **The warm set does not fit alongside a game.** qwen3:14b + bge-m3 is ~11.5 GB of 16 GB. There is no polite coexistence at that size, so the gate is all-or-nothing.
+
+Cost of getting this wrong, measured: reaper-dashboard filed **7,946 Bug Fairy reports** between 2026-07-09 and 2026-07-30 against a node that was intentionally unavailable.
+
+## Design rule: fail-safe toward gaming
+
+Every uncertain path favours the game, never the fleet. If the watchlist is unreadable, if a poll throws, or if the watcher process dies, **Ollama stays stopped**. The cost of that is a delayed reindex. The cost of the opposite is a stuttering game, which is the entire problem being solved.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `AI-Pause.ps1` | Queries `/api/ps`, unloads every loaded model via `keep_alive=0`, polls up to 15 s for eviction to complete, reports final state |
-| `AI-Resume.ps1` | Sanity-checks Ollama, restarts the service if stopped, warms each model in `$CHAT_MODELS` + `$EMBED_MODELS` back into VRAM |
-| `AI-Pause.cmd` / `AI-Resume.cmd` | Double-clickable launchers (handle `-ExecutionPolicy Bypass`) |
-| `README.md` | This file |
+| `Game-Watch.ps1` | The watcher. Polls for game processes every 10 s; stops `OllamaService` when one appears, restarts and re-warms it after a grace period once none remain |
+| `Install-GameWatch.ps1` | Registers the watcher as a SYSTEM scheduled task at boot. `-Uninstall`, `-Status` |
+| `GpuGate.ps1` | Shared state helpers, dot-sourced by the other three. Owns the gate state file and the service start/stop primitives |
+| `games.json` | Editable process watchlist. Re-read every poll, so no restart needed after an edit |
+| `AI-Pause.ps1` | Manual override. **Stops the service** and records a `manual` pause that the watcher will not auto-release |
+| `AI-Resume.ps1` | Starts the service, warms the models, releases the gate. Refuses while a watched game is running unless `-Force` |
+| `AI-Pause.cmd` / `AI-Resume.cmd` | Double-clickable launchers. Route through `gsudo` because stopping a service needs elevation |
+| `Verify-GPU.ps1` | Confirms inference is really on the GPU (see ollama#13920 silent CPU fallback) |
 
-Desktop shortcuts created at `%USERPROFILE%\Desktop\AI-Pause.lnk` and `AI-Resume.lnk` with hotkeys `Ctrl+Alt+P` (pause) and `Ctrl+Alt+R` (resume). Right-click → Properties → Shortcut key to change.
+Runtime state lives in `%ProgramData%\falkensteink\` (`gpu-gate.json`, `gpu-gate.log`), **not** in this repo, because the watcher runs as SYSTEM while the hotkeys and the AI Fleet Dashboard run as Kyle.
 
 ## Usage
 
-**Before launching a game:** press `Ctrl+Alt+P`, watch for `GPU released for gaming.`
+**Normal operation: do nothing.** Launch a game, the GPU is released within ~10 s. Close it, Ollama comes back ~60 s later and re-warms.
 
-**After closing the game:** press `Ctrl+Alt+R`, watch for `Ready.`
+| Command | Purpose |
+|---|---|
+| `.\Game-Watch.ps1 -Status` | Current gate state, service state, API reachability |
+| `.\Game-Watch.ps1 -Candidates` | Lists running processes over 300 MB and marks which are watched. Use this to find a game's process name |
+| `Ctrl+Alt+P` | Manual pause. Outranks the watcher; holds until you resume |
+| `Ctrl+Alt+R` | Manual resume |
+| `.\Install-GameWatch.ps1 -Status` | Task state plus the last 20 gate-log lines |
 
-Both windows auto-close after 3 seconds. Exit codes: 0 = success, 1 = API down / service issue, 2 = pause completed but at least one model failed to evict.
+**Adding a game:** run `-Candidates` while it is running, add the process name to the `processes` array in `games.json`. Trailing `*` is a prefix wildcard (`ShooterGame*`). No restart needed.
+
+Exit codes - `AI-Pause`: 0 success, 1 stop failed, 2 stopped but port still answering. `AI-Resume`: 0 success, 1 warm failed, 4 refused because a game is running.
 
 ## Default warm set
 
 Currently in `AI-Resume.ps1`:
-- Chat: `qwen2.5:3b`  (~2.4 GB VRAM)
-- Embed: `bge-m3:latest`  (~1.15 GB VRAM)
+- Chat: `qwen3:14b`  (~9 GB VRAM)
+- Embed: `bge-m3:latest`  (~1.2 GB VRAM)
 
-Total ~3.6 GB resident. Fits RX 580's 8 GB with room to spare.
+Total ~11.5 GB resident of the RX 9070 XT's 16 GB. This is deliberately too large to share with a game, which is why the gate is all-or-nothing rather than a smaller always-on footprint.
 
 ## Runtime override via warm-set.json
 

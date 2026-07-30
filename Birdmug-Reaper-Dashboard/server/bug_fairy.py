@@ -40,6 +40,31 @@ from urllib.error import URLError
 log = logging.getLogger("bug_fairy")
 
 
+def mark_expected(reason: str = ""):
+    """Mark the current Flask request as an EXPECTED error response.
+
+    The Flask middleware reports every response at or above ``min_status_code``.
+    That is the right default, but some error responses are a correct, designed
+    answer rather than a defect - most commonly "a remote node this service
+    proxies to is deliberately offline right now".
+
+    This is NOT a way to silence errors you would rather not deal with. The
+    reason string is logged on every skip, so a suppressed response still leaves
+    a trace in Loki. Legitimate use requires all three of:
+      1. The condition is expected during normal operation, not merely frequent.
+      2. The caller is told plainly what happened (honest status code + body).
+      3. Something else is responsible for noticing if the state persists
+         abnormally - a Kuma probe, a dashboard state, a digest.
+
+    Origin: reaper-dashboard filed 7,946 reports for a gaming PC that was
+    intentionally unavailable, drowning out real bugs in the same channel.
+    """
+    from flask import g
+
+    g._bugfairy_skip = True
+    g._bugfairy_skip_reason = reason
+
+
 class BugFairy:
     def __init__(
         self,
@@ -119,6 +144,17 @@ class BugFairy:
 
         @flask_app.after_request
         def _bugfairy_after_request(response):
+            # An error response that the handler explicitly marked as EXPECTED
+            # is not a bug. See mark_expected() for the rationale and the rules
+            # about when using it is legitimate.
+            if getattr(g, "_bugfairy_skip", False):
+                reason = getattr(g, "_bugfairy_skip_reason", "")
+                log.info(
+                    "bug-fairy: not reporting expected %s response (%s)",
+                    response.status_code,
+                    reason or "no reason given",
+                )
+                return response
             if response.status_code >= fairy.min_status_code:
                 try:
                     from flask import request as flask_request

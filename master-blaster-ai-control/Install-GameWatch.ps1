@@ -29,6 +29,36 @@ function Test-Elevated {
     return $pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Stop-OrphanWatchers {
+    <#
+      Kill any Game-Watch processes still running outside the scheduled task.
+
+      Unregister-ScheduledTask does NOT terminate the process the task started,
+      so every reinstall used to leave the previous watcher running forever. It
+      is then invisible to the task scheduler: it will not be restarted, will
+      not be stopped, and just quietly multiplies the poll and heartbeat rate.
+      Observed 2026-07-30: three concurrent watchers after three reinstalls.
+
+      The cross-process mutex kept the gate state correct throughout, but
+      orphans are still wrong - they are unmanaged, and a stale one running old
+      code after an upgrade would be genuinely dangerous.
+    #>
+    $mine = $PID
+    $orphans = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*Game-Watch.ps1*' -and $_.ProcessId -ne $mine })
+    if ($orphans.Count -eq 0) { return }
+    Write-Host "Found $($orphans.Count) running watcher process(es), stopping them ..." -ForegroundColor DarkGray
+    foreach ($o in $orphans) {
+        try {
+            Stop-Process -Id $o.ProcessId -Force -ErrorAction Stop
+            Write-Host "  stopped pid $($o.ProcessId)" -ForegroundColor DarkGray
+        } catch {
+            Write-Host "  WARNING could not stop pid $($o.ProcessId): $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    Start-Sleep -Seconds 1
+}
+
 if ($Status) {
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     if ($null -eq $task) {
@@ -62,6 +92,7 @@ if ($Uninstall) {
         exit 0
     }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Stop-OrphanWatchers
     Write-Host "Removed task '$TaskName'." -ForegroundColor Green
     Write-Host 'NOTE: the GPU gate is no longer automatic. Ollama can now load models during games.' -ForegroundColor Yellow
     exit 0
@@ -96,6 +127,8 @@ if ($null -ne $existing) {
     Write-Host "Task exists, replacing ..." -ForegroundColor DarkGray
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
+# Must come AFTER unregister so the task cannot restart what we are killing.
+Stop-OrphanWatchers
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings `

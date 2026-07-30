@@ -55,6 +55,34 @@ def _away_payload(detail: str) -> dict:
     }
 
 
+def _gated_short_circuit(path, model):
+    """Refuse immediately when the gate says Master Blaster is paused.
+
+    Master Blaster is a Windows box, and Windows DROPS packets to a closed port
+    instead of sending a TCP reset. A gated node therefore does not fail fast -
+    it hangs until our client timeout (30s embed / 300s generate), and the
+    LiteLLM router then retries it. Measured 2026-07-30: a fleet/embed request
+    through the gateway did not return within 90 seconds while the gate was
+    engaged, because every attempt was waiting on a black hole.
+
+    Correctly classifying the eventual timeout is not enough. When we already
+    know the node is away, the right move is to not make the call at all, so the
+    router can cool this backend down and reach LilBlue immediately.
+
+    Returns a Flask response tuple to return, or None to proceed normally.
+    """
+    gate = reaper.gate_says_paused()
+    if gate is None:
+        return None
+    token = tracker.start("POST", path, model)
+    tracker.finish(token, 503, 0, model=model)
+    _log.info("short-circuit: gate reports paused (%s), not calling upstream", gate.get("game"))
+    mark_expected("master blaster gated for gaming")
+    payload = _away_payload("gate reports a deliberate pause; upstream not contacted")
+    payload["gate"] = gate
+    return jsonify(payload), 503
+
+
 def _handle_away(exc, token, duration_ms, model):
     """Shared response for "Master Blaster is not accepting connections".
 
@@ -142,6 +170,10 @@ def proxy_chat():
     model = req_data.get("model", "")
     is_stream = req_data.get("stream", False)
 
+    gated = _gated_short_circuit("/v1/chat/completions", model)
+    if gated is not None:
+        return gated
+
     token = tracker.start("POST", "/v1/chat/completions", model)
 
     fwd = urllib.request.Request(
@@ -212,6 +244,13 @@ def proxy_chat():
 
 @app.route("/v1/models")
 def proxy_models():
+    gate = reaper.gate_says_paused()
+    if gate is not None:
+        mark_expected("master blaster gated for gaming")
+        payload = _away_payload("gate reports a deliberate pause; upstream not contacted")
+        payload["gate"] = gate
+        return jsonify(payload), 503
+
     fwd = urllib.request.Request(f"{OLLAMA_URL}/v1/models", method="GET")
     fwd.add_header("Accept", "application/json")
     try:
@@ -246,6 +285,10 @@ def proxy_ollama_generate():
     model = req_data.get("model", "")
     # Ollama defaults stream=true; respect what the client sends
     is_stream = req_data.get("stream", True)
+
+    gated = _gated_short_circuit(path, model)
+    if gated is not None:
+        return gated
 
     token = tracker.start("POST", path, model)
 
@@ -323,6 +366,10 @@ def proxy_ollama_embed():
     if not req_data and body:
         logging.getLogger(__name__).warning("proxy_ollama_embed: failed to parse JSON body (%d bytes)", len(body))
     model = req_data.get("model", "")
+
+    gated = _gated_short_circuit(path, model)
+    if gated is not None:
+        return gated
 
     token = tracker.start("POST", path, model)
 

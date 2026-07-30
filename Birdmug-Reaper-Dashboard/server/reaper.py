@@ -133,6 +133,26 @@ def record_gate_state(payload: dict) -> dict:
     return entry
 
 
+def gate_says_paused() -> dict | None:
+    """The gate report if it currently asserts a deliberate pause, else None.
+
+    This is the fast path that matters. Master Blaster is a WINDOWS box, and
+    Windows silently DROPS packets to a closed port rather than sending a TCP
+    reset. So a gated node does not fail fast with ECONNREFUSED the way a Linux
+    host would - it hangs until the client timeout expires (30s for embeddings,
+    300s for generation), and then the LiteLLM router retries it.
+
+    Measured 2026-07-30: with the gate engaged, a fleet/embed request through
+    the gateway never returned inside 90 seconds, because every attempt sat
+    waiting on a black hole. Classifying the eventual timeout correctly is not
+    enough - we have to not make the call at all.
+    """
+    gate = get_gate_report()
+    if gate and gate.get("state") == "paused":
+        return gate
+    return None
+
+
 def get_gate_report() -> dict | None:
     """Latest heartbeat if it is still fresh, else None.
 
@@ -151,6 +171,32 @@ def get_gate_report() -> dict | None:
 
 
 def status_payload() -> dict:
+    # Ask the gate before touching the network. See gate_says_paused() - on
+    # Windows an unreachable Ollama times out rather than refusing, so probing a
+    # node we already know is paused costs 10 seconds per check for nothing.
+    gate = gate_says_paused()
+    if gate is not None:
+        away_hours = _away_duration_hours()
+        if away_hours is not None and away_hours > AWAY_BUDGET_HOURS:
+            return {
+                "status": "down",
+                "error": "gated beyond the expected gaming window",
+                "detail": (
+                    f"Master Blaster has been gated for {away_hours:.1f}h, beyond "
+                    f"the {AWAY_BUDGET_HOURS}h budget. Treating this as a fault "
+                    "rather than a normal pause."
+                ),
+                "gate": gate,
+                "ts": time.time(),
+            }
+        return {
+            "status": "away",
+            "hint": AWAY_HINT,
+            "gate": gate,
+            "away_hours": away_hours,
+            "ts": time.time(),
+        }
+
     try:
         code, version_data = request_json("/api/version", timeout=10)
         if code != 200:
@@ -168,45 +214,30 @@ def status_payload() -> dict:
         # Master Blaster's watcher has recently told us it paused on purpose.
         # No fresh heartbeat means we do not know, and not-knowing is reported
         # as "down" so it still gets attention.
-        if is_node_away(exc):
-            gate = get_gate_report()
-            if gate and gate.get("state") == "paused":
-                # Time-box it. "Away" is expected for the length of a gaming
-                # session, not for days. Past the budget we stop calling this
-                # normal, so a machine that is wedged-but-heartbeating (or a
-                # gate stuck paused because OllamaService will not start) still
-                # gets attention instead of hiding behind a calm amber card.
-                away_hours = _away_duration_hours()
-                if away_hours is not None and away_hours > AWAY_BUDGET_HOURS:
-                    return {
-                        "status": "down",
-                        "error": str(exc),
-                        "detail": (
-                            f"Master Blaster has been gated for {away_hours:.1f}h, "
-                            f"beyond the {AWAY_BUDGET_HOURS}h expected-gaming budget. "
-                            "Treating this as a fault rather than a normal pause."
-                        ),
-                        "gate": gate,
-                        "ts": time.time(),
-                    }
-                return {
-                    "status": "away",
-                    "error": str(exc),
-                    "hint": AWAY_HINT,
-                    "gate": gate,
-                    "away_hours": away_hours,
-                    "ts": time.time(),
-                }
+        # A pause can land while we were mid-probe. Re-check before judging.
+        gate = gate_says_paused()
+        if gate is not None:
             return {
-                "status": "down",
+                "status": "away",
                 "error": str(exc),
-                "detail": (
-                    "Ollama is unreachable and Master Blaster has not reported a "
-                    "gaming pause recently, so this is not an expected absence."
-                ),
+                "hint": AWAY_HINT,
+                "gate": gate,
+                "away_hours": _away_duration_hours(),
                 "ts": time.time(),
             }
-        return {"status": "down", "error": str(exc), "ts": time.time()}
+        # Unreachable with NO gate confirmation is not an expected absence.
+        # Deliberately reported as "down" whether the failure was a refusal or a
+        # timeout, because we cannot tell a dead PSU from a wedged box and both
+        # deserve attention.
+        return {
+            "status": "down",
+            "error": str(exc),
+            "detail": (
+                "Ollama is unreachable and Master Blaster has not reported a "
+                "gaming pause recently, so this is not an expected absence."
+            ),
+            "ts": time.time(),
+        }
 
     try:
         _, ps_data = request_json("/api/ps", timeout=10)

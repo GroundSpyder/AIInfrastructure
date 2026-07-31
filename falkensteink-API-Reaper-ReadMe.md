@@ -132,6 +132,30 @@ These are not proxied. The dashboard's status panel calls them
 server-side via the internal `server/reaper.py` client. If you need them
 from outside Toshi, hit Ollama directly on Master Blaster.
 
+### Gate endpoints (added 2026-07-30)
+
+```text
+POST /api/gate         — heartbeat receiver (Master Blaster's watcher posts here)
+GET  /api/node-health   — liveness view shaped for Uptime Kuma
+```
+
+`GET /api/node-health` is **unauthenticated** and returns:
+
+- **200** when the node is usable **or deliberately away for gaming**
+- **503** only when it is genuinely unreachable with no explanation
+
+```json
+{ "node": "master-blaster", "status": "up|away|down",
+  "gate": { "state": "available|paused", "game": "...", "age_seconds": 1.5 } }
+```
+
+Point uptime checks here rather than at Ollama's port directly — otherwise
+the monitor goes red for the whole of every gaming session.
+
+`POST /api/gate` is also unauthenticated (LAN-bound, same rationale as the
+proxy routes) and carries no secrets. It exists because a refused connection
+alone cannot distinguish "gated for gaming" from "PSU died".
+
 ## Environment config
 
 ### Toshi proxy clients (preferred for observability)
@@ -244,12 +268,35 @@ Full host details in [`MASTERBLASTER.md`](../MASTERBLASTER.md).
 
 ## Start and Stop
 
-Start/stop on Master Blaster (desktop shortcuts, gaming-imminent):
+**Normally you do nothing.** Since 2026-07-30 a SYSTEM scheduled task
+(`Falkensteink-GameWatch`) on Master Blaster stops `OllamaService` whenever a
+watched game process is running, and restarts + re-warms it ~60 s after the
+game exits. `OllamaService` is also `StartType=Manual` now, so a reboot cannot
+un-gate the card.
+
+Manual overrides remain (desktop shortcuts):
 
 ```
-Ctrl+Alt+P  / AI-Pause.cmd    — unload all loaded models (releases GPU)
-Ctrl+Alt+R  / AI-Resume.cmd   — warm the configured chat + embed models
+Ctrl+Alt+P  / AI-Pause.cmd    — STOP the service (sticky; outranks the watcher)
+Ctrl+Alt+R  / AI-Resume.cmd   — start + warm; refuses while a game is running
 ```
+
+> **These now stop and start the service, not just unload models.** The old
+> `keep_alive=0` unload could not hold: the fleet gateway load-balances
+> `fleet/embed` onto this box and routes all of `fleet/chat-quality` here, so
+> ordinary background traffic pulled ~9-11 GB straight back into VRAM within
+> minutes, mid-game. A stopped service refuses connections, which also lets the
+> gateway cool this backend down and fail over cleanly.
+
+Check state at any time:
+
+```powershell
+.\Game-Watch.ps1 -Status        # gate state, service state, API reachability
+.\Game-Watch.ps1 -Candidates    # find a new game's process name to add
+```
+
+Watchlist is `games.json` in `master-blaster-ai-control\`, re-read every poll.
+Full detail: [`master-blaster-ai-control/README.md`](./master-blaster-ai-control/README.md).
 
 Service management (admin shell on MB):
 
@@ -278,15 +325,28 @@ Master Blaster is Kyle's primary dev PC and the GPU is gaming-shared.
 
 - Ollama runs at **BelowNormal** CPU priority so Claude Code / games / the
   desktop stay responsive.
-- Any loaded chat model sits in the gaming GPU's VRAM. The 9070 XT has
-  16 GB so there's room to game with the warm set loaded, but for
-  GPU-bound titles use `AI-Pause.cmd` first.
-- `AI-Pause.cmd` on the desktop hard-unloads everything and fully
-  releases the GPU. If Reaper goes unreachable around gaming hours, this
-  is expected.
+- The warm set is `qwen3:14b` + `bge-m3` ≈ **11.5 GB of 16 GB**. There is *not*
+  room to game with it loaded — which is why the gate is all-or-nothing rather
+  than a smaller always-on footprint.
+- **This is now automatic.** `Falkensteink-GameWatch` stops the service when a
+  watched game starts and restores it after. You should not need to remember
+  the hotkey. Every uncertain path in that watcher fails toward *gaming*: an
+  unreadable watchlist, a failed poll, or a dead watcher all leave Ollama
+  stopped.
+- **Reaper being unreachable during gaming hours is expected, not an outage.**
+  Do not "fix" it, and do not page on it — use `GET /api/node-health`, which
+  returns 200 for `away` and 503 only for a genuine fault.
 - If Master Blaster is unreachable, callers should fall back gracefully.
   Do not retry-loop into Reaper from a tight loop — fall back to LilBlue
   (qwen2.5:7b on Kaydanski) for chat or queue the request.
+
+> **Consumer note — Windows does not refuse, it hangs.** A gated Master Blaster
+> drops packets rather than sending a TCP reset, so a naive client waits for its
+> full timeout instead of failing fast. Measured 2026-07-30: an embed request
+> through the gateway never returned inside 90 s. The proxy now short-circuits
+> on the gate heartbeat and answers **503 in ~1 ms** instead. If you talk to
+> Ollama on Master Blaster *directly*, set a short connect timeout yourself —
+> you do not get that protection.
 
 ## Topology
 

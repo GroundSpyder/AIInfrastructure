@@ -171,9 +171,9 @@ LAN consumers — every external reach is through the tunnel.
 | GET    | `/api/models/<host>/ps`                    | yes | Loaded models (Ollama `/api/ps`) |
 | GET    | `/api/models/<host>/tags`                  | yes | Installed models (Ollama `/api/tags`) |
 | POST   | `/api/models/<host>/show`                  | yes | Model details |
-| POST   | `/api/models/<host>/load`                  | yes | Warm into VRAM (`{model, strict_gpu, keep_alive}`) |
+| POST   | `/api/models/<host>/load`                  | yes | Warm into VRAM (`{model, strict_gpu, keep_alive}`) — **see gate warning below** |
 | POST   | `/api/models/<host>/unload`                | yes | Evict (`{model}`, sets `keep_alive=0s`) |
-| POST   | `/api/models/<host>/test`                  | yes | Inference smoke test — runs a single short `/api/generate` against the model, returns latency + token count (audit-logged) |
+| POST   | `/api/models/<host>/test`                  | yes | Inference smoke test — runs a single short `/api/generate` against the model, returns latency + token count (audit-logged) — **see gate warning below** |
 | POST   | `/api/models/<host>/pull`                  | yes | Pull new — streams SSE progress |
 | DELETE | `/api/models/<host>/delete`                | yes | Delete — requires `{model, confirm_name: <same>}` |
 | GET    | `/api/models/<host>/env`                   | yes | NSSM AppEnvironmentExtra (via SSH) |
@@ -209,6 +209,28 @@ crashes. Mount is `:ro`.
 Required per FRAMEWORKS.md: Kuma external HTTP probe against
 `https://ai.birdmug.com/health` (no auth on `/health`, returns 200 with
 `{"status":"ok"}`).
+
+## ⚠️ Write ops against `mb` fight the gaming gate
+
+`host=mb` is Master Blaster, Kyle's gaming PC. Since 2026-07-30 a SYSTEM watcher
+(`Falkensteink-GameWatch`) stops `OllamaService` there whenever a watched game is
+running, because the warm set is ~11.5 GB of a 16 GB card.
+
+**`load`, `test`, and the SSH `restart` op can pull that back into VRAM mid-game.**
+
+The watcher is level-triggered — it re-asserts the stopped state on every 10 s
+poll rather than only on transitions — so anything started here is undone within
+about 10 seconds. That is a safety net, not permission: the window before it
+corrects is still a stutter in whatever Kyle is playing.
+
+Check first:
+
+```bash
+curl -s http://192.168.4.31:8793/api/node-health   # status: up | away | down
+```
+
+`away` means the gate is engaged; leave `mb` alone until it reads `up`. `pull`
+and `delete` touch disk rather than VRAM and are safe either way.
 
 ## Audit log
 

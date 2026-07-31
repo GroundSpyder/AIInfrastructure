@@ -107,6 +107,28 @@ POST   /api/models/<host>/pull      — pull a new tag (SSE progress)
 DELETE /api/models/<host>/delete    — remove (requires {model, confirm_name: <same>})
 ```
 
+> ### ⚠️ These fight the Master Blaster gaming gate
+>
+> `host=mb` is Kyle's gaming PC. Since 2026-07-30 a SYSTEM watcher
+> (`Falkensteink-GameWatch`) stops `OllamaService` there whenever a watched game
+> is running. **`load`, `test` and the SSH `restart` op below can pull ~9-11 GB
+> back into the GPU mid-game.**
+>
+> The watcher is *level-triggered* — it asserts the service is stopped on every
+> 10 s poll, not just on transitions — so anything you start here is undone
+> within about 10 seconds while a game is running. That is a safety net, not a
+> licence: you can still cost Kyle a stutter in the window before it corrects.
+>
+> Check before using write ops against `mb`:
+>
+> ```
+> curl -s http://192.168.4.31:8793/api/node-health   # status: up | away | down
+> ```
+>
+> `away` means the gate is engaged — leave it alone. `pull` and `delete` are
+> safe either way (disk, not VRAM). See
+> [master-blaster-ai-control/README.md](./master-blaster-ai-control/README.md).
+
 **Control plane (SSH):**
 
 ```text

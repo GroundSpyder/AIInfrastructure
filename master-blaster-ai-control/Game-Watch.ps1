@@ -95,6 +95,11 @@ function Suspend-ForGame {
 }
 
 function Resume-AfterGame {
+    # $Trigger names why we are starting the service, and is recorded in the gate
+    # state so "came back after a game" and "was found down for no reason" are
+    # distinguishable afterwards. They have very different causes.
+    param([string]$Trigger = 'game exited')
+
     # Re-check immediately before starting. The decision to resume was made from
     # a snapshot taken earlier in this evaluation, and a game can launch in
     # between. Starting the service on a stale snapshot is how the watcher ends
@@ -110,8 +115,8 @@ function Resume-AfterGame {
         # Leave the gate paused. Reporting 'available' when the service did not
         # actually start would tell the fleet to route traffic into a black hole.
         Write-GateLog 'service failed to start; leaving gate PAUSED so the fleet keeps failing over' 'ERROR'
-        Publish-GateState -State 'paused' -Owner $script:OWNER_GAME -Reason 'service failed to start after game exit' `
-            -Alert 'OllamaService will not start after the game exited. This node is out of the fleet until fixed.' | Out-Null
+        Publish-GateState -State 'paused' -Owner $script:OWNER_GAME -Reason "service failed to start ($Trigger)" `
+            -Alert "OllamaService will not start ($Trigger). This node is out of the fleet until fixed." | Out-Null
         return
     }
 
@@ -129,7 +134,7 @@ function Resume-AfterGame {
         return
     }
 
-    Set-GateState -State 'available' -Owner '' -Reason 'game exited' | Out-Null
+    Set-GateState -State 'available' -Owner '' -Reason $Trigger | Out-Null
     Invoke-Warm
     Write-GateLog 'gate released, fleet node back online'
 }
@@ -211,7 +216,29 @@ function Invoke-GateEvaluation {
     }
 
     # No game running.
-    if ($gate.state -ne 'paused') { return }
+    if ($gate.state -ne 'paused') {
+        # LEVEL-TRIGGERED on the start side too, for the same reason the stop side
+        # is: the gate file records intent, the service is ground truth, and the
+        # two drift. Without this the watcher only ever starts Ollama on the
+        # edge out of 'paused', so "gate available, no game, service stopped" is
+        # a state nothing repairs - it just sits there.
+        #
+        # That is not hypothetical. Master Blaster rebooted on 2026-08-12,
+        # OllamaService is StartMode=Manual so nothing brought it back, and the
+        # gate went on reporting 'available / resumed and warm' for two days
+        # while every Squire intake silently failed to classify. Found
+        # 2026-08-13; see Squire/memory/lessons_learned.md.
+        #
+        # A deliberate pause is always state='paused' (AI-Pause records it that
+        # way), so reaching here with the service down means nobody asked for it
+        # to be down.
+        if ((Test-OllamaStopped) -eq $true) {
+            Write-GateLog 'gate is available and no game is running, but OllamaService is stopped - restoring' 'WARN'
+            Resume-AfterGame -Trigger 'found stopped with the gate available'
+            $LastGameSeenAt.Value = $null
+        }
+        return
+    }
 
     if ($gate.owner -eq $script:OWNER_MANUAL) {
         # Kyle paused this by hand. Only Kyle releases it.

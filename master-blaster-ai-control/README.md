@@ -19,11 +19,22 @@ Cost of getting this wrong, measured: reaper-dashboard filed **7,946 Bug Fairy r
 
 Every uncertain path favours the game, never the fleet. If the watchlist is unreadable, if a poll throws, or if the watcher process dies, **Ollama stays stopped**. The cost of that is a delayed reindex. The cost of the opposite is a stuttering game, which is the entire problem being solved.
 
+## Design rule: the gate file is intent, the service is ground truth (2026-08-14)
+
+Both directions are **level-triggered**. Every poll asserts what the service should be doing rather than acting only on transitions, because the state file and reality drift and nothing else notices when they do.
+
+The stop side has worked this way since the watcher was written. The start side did not, and the hole it left is worth remembering: the watcher only started Ollama on the edge out of `paused`, so *gate available + no game + service stopped* was a state nothing repaired. Master Blaster rebooted on 2026-08-12, `OllamaService` is `StartMode=Manual` so nothing brought it back, and `-Status` went on reporting `available / resumed and warm` for two days while every Squire intake silently failed to classify. Found 2026-08-13 while debugging an unrelated empty task list.
+
+Two consequences worth not undoing:
+
+- **`OllamaService` stays `StartMode=Manual` deliberately.** The watcher owns the decision, so a boot that happens mid-game does not load 11.5 GB into VRAM before anything checks. Setting it `Automatic` would take the gate out of the loop at exactly the moment it matters.
+- **The watcher must actually be installed.** With it absent there is nothing to start Ollama at all, and the gate file is the only thing that says otherwise. Check with `.\Install-GameWatch.ps1 -Status`, not `Game-Watch.ps1 -Status` - the latter reports what the *file* claims and will look healthy with no watcher running.
+
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Game-Watch.ps1` | The watcher. Polls for game processes every 10 s; stops `OllamaService` when one appears, restarts and re-warms it after a grace period once none remain |
+| `Game-Watch.ps1` | The watcher. Polls for game processes every 10 s; stops `OllamaService` when one appears, restarts and re-warms it after a grace period once none remain. Also restores it whenever it is found stopped with the gate `available` and no game running |
 | `Install-GameWatch.ps1` | Registers the watcher as a SYSTEM scheduled task at boot. `-Uninstall`, `-Status` |
 | `GpuGate.ps1` | Shared state helpers, dot-sourced by the other three. Owns the gate state file and the service start/stop primitives |
 | `games.json` | Editable process watchlist. Re-read every poll, so no restart needed after an edit |

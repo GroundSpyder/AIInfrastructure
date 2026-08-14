@@ -30,6 +30,41 @@ $script:OWNER_MANUAL = 'manual'
 $script:MutexName = 'Global\falkensteink-gpu-gate'
 $script:Mutex     = $null
 
+function New-GateMutex {
+    <#
+      Create (or open) the gate mutex with a DACL that Administrators can
+      actually use.
+
+      A mutex created by SYSTEM with the default descriptor is not openable by
+      anyone else - not even an elevated administrator. Since the watcher runs
+      as SYSTEM and starts at boot, it always wins the race to create it, and
+      the effect was that AI-Pause.ps1 and AI-Resume.ps1 could never take the
+      lock while the watcher was installed:
+
+        [ERROR] could not acquire gate mutex: Exception calling ".ctor" with "2"
+                argument(s): "Access to the path 'Global\falkensteink-gpu-gate'
+                is denied."
+
+      Both scripts fail closed on that, so the manual override - the thing that
+      must work when a game is starting - reported "another gate operation is in
+      progress" and did nothing. Found 2026-08-14.
+
+      Administrators rather than Users because both hotkeys route through gsudo
+      already, so nothing unelevated needs it.
+    #>
+    $admins = New-Object System.Security.Principal.SecurityIdentifier(
+        [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+    $security = New-Object System.Security.AccessControl.MutexSecurity
+    $security.AddAccessRule(
+        (New-Object System.Security.AccessControl.MutexAccessRule(
+            $admins,
+            [System.Security.AccessControl.MutexRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow)))
+
+    $createdNew = $false
+    return New-Object System.Threading.Mutex($false, $script:MutexName, [ref]$createdNew, $security)
+}
+
 function Enter-GateLock {
     <#
       Serialise every read-modify-write of the gate across processes.
@@ -47,7 +82,7 @@ function Enter-GateLock {
     param([int]$TimeoutMs = 20000)
     try {
         if ($null -eq $script:Mutex) {
-            $script:Mutex = New-Object System.Threading.Mutex($false, $script:MutexName)
+            $script:Mutex = New-GateMutex
         }
         return $script:Mutex.WaitOne($TimeoutMs)
     } catch [System.Threading.AbandonedMutexException] {

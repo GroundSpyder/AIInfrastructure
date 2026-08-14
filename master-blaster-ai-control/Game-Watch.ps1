@@ -38,6 +38,10 @@ $ErrorActionPreference = 'Stop'
 $script:WatchlistPath = Join-Path $PSScriptRoot 'games.json'
 $script:ResumeScript  = Join-Path $PSScriptRoot 'AI-Resume.ps1'
 
+# Set when a resume decides the models should be warmed, consumed by
+# Invoke-GateEvaluationLocked once the gate mutex has been released.
+$script:PendingWarm = $false
+
 # Get-Watchlist / Test-NameMatches / Get-RunningGame now live in GpuGate.ps1 so
 # that AI-Resume.ps1 can ask the same question before it warms 11 GB into VRAM.
 
@@ -135,7 +139,22 @@ function Resume-AfterGame {
     }
 
     Set-GateState -State 'available' -Owner '' -Reason $Trigger | Out-Null
-    Invoke-Warm
+
+    # Warm AFTER the lock is dropped, not here. Invoke-Warm shells out to
+    # AI-Resume.ps1, which takes the same cross-process mutex this function is
+    # running inside, so calling it here means a child waiting 20 s for a lock
+    # its own parent holds. It then exits 1 and the node comes back cold every
+    # single time, with only a WARN to show for it:
+    #
+    #   07:53:29 OllamaService started
+    #   07:53:55 warm: [AI-Resume] Could not take the gate lock ...
+    #   07:53:55 AI-Resume exited 1, models may not be warm
+    #
+    # Warming reads and writes no gate state, so it does not belong in the
+    # critical section anyway - and holding the gate across a 60 s model load
+    # blocks the one thing that must always work: Kyle hitting pause because a
+    # game just launched.
+    $script:PendingWarm = $true
     Write-GateLog 'gate released, fleet node back online'
 }
 
@@ -270,6 +289,14 @@ function Invoke-GateEvaluationLocked {
         Invoke-GateEvaluation -LastGameSeenAt $LastGameSeenAt
     } finally {
         Exit-GateLock
+    }
+
+    # Outside the lock on purpose - see the note in Resume-AfterGame. Warming
+    # touches no gate state, and AI-Resume.ps1 needs this very mutex to run at
+    # all, so it cannot happen while we hold it.
+    if ($script:PendingWarm) {
+        $script:PendingWarm = $false
+        Invoke-Warm
     }
 }
 

@@ -38,8 +38,8 @@ import traceback
 from typing import Callable
 from urllib.error import HTTPError
 from collections.abc import Iterable
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 log = logging.getLogger("bug_fairy")
 

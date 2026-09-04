@@ -36,8 +36,8 @@ import threading
 import time
 import traceback
 from collections.abc import Iterable
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 log = logging.getLogger("bug_fairy")
 
@@ -137,7 +137,10 @@ class BugFairy:
         this governs only the response-code middleware. See
         ignore_status_codes in __init__ for the data behind the default.
         """
-        return status_code >= self.min_status_code and status_code not in self.ignore_status_codes
+        return (
+            status_code >= self.min_status_code
+            and status_code not in self.ignore_status_codes
+        )
 
     def install(self):
         """Hook into sys.excepthook to automatically capture unhandled exceptions."""
@@ -280,7 +283,9 @@ class BugFairy:
                 # silent-failure-scan: allow loop-prevention-during-self-report
                 except Exception:
                     # Must never break the app -- but must not vanish either.
-                    log.warning("bug-fairy: failed to report an error response", exc_info=True)
+                    log.warning(
+                        "bug-fairy: failed to report an error response", exc_info=True
+                    )
             # g is auto-cleared when the request context tears down, no
             # explicit reset needed.
             else:
@@ -380,20 +385,24 @@ class BugFairy:
         if self._original_threading_excepthook is not None:
             threading.excepthook = self._original_threading_excepthook
             self._original_threading_excepthook = None
-        receiver = getattr(self, '_flask_exc_receiver', None)
+        receiver = getattr(self, "_flask_exc_receiver", None)
         if receiver is not None:
             try:
                 from flask import got_request_exception
 
                 got_request_exception.disconnect(receiver, self._flask_app)
             except Exception:
-                log.warning("bug-fairy: could not disconnect the Flask receiver", exc_info=True)
+                log.warning(
+                    "bug-fairy: could not disconnect the Flask receiver", exc_info=True
+                )
             self._flask_exc_receiver = None
             self._flask_app = None
         try:
             atexit.unregister(self.flush)
         except Exception:
-            log.warning("bug-fairy: could not unregister the atexit flush", exc_info=True)
+            log.warning(
+                "bug-fairy: could not unregister the atexit flush", exc_info=True
+            )
         self._running = False
         self.flush()
         self._installed = False
